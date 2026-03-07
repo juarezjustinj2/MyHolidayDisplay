@@ -18,6 +18,8 @@
   <script type="text/babel" data-presets="react">
 const { useState, useEffect, useCallback, useRef } = React;
 
+
+
 const STORAGE_KEY = "xmas-lights-listings";
 const GOOGLE_MAPS_API_KEY = "AIzaSyBIQl6gOZh7675WBSNtCCO4IjboEBImRC8";
 
@@ -115,14 +117,7 @@ const TAGS = {
   ],
 };
 
-const SAMPLE_DATA = [
-  { id:"s1", displayName:"The Wonderland on Amphitheatre", address:"1600 Amphitheatre Pkwy, Mountain View, CA", lat:37.422, lng:-122.0841, photo:null, ratings:[5,5,4,5], comments:[{author:"Holly",text:"Absolutely spectacular — the whole block glows!",time:Date.now()-86400000}], submitter:"Santa Fan", createdAt:Date.now()-172800000, tags:["sync","walk","free"], hours:"6pm – 11pm nightly", active:true, visits:12, description:"Fully synchronized light show to Christmas classics. Best viewed from the corner.", holidays:["christmas"] },
-  { id:"s2", displayName:"5th Ave Festive", address:"350 5th Ave, New York, NY 10118", lat:40.7484, lng:-73.9967, photo:null, ratings:[4,3,4], comments:[{author:"Nick",text:"Worth every minute of the drive.",time:Date.now()-21600000}], submitter:"Christmas Lover", createdAt:Date.now()-86400000, tags:["inf","free"], hours:"5pm – 10pm", active:true, visits:8, description:"Giant inflatable display with 20+ characters. Great for kids!", holidays:["christmas"] },
-  { id:"s3", displayName:"Universal Winter Lights", address:"100 Universal City Plaza, Universal City, CA", lat:34.1381, lng:-118.3534, photo:null, ratings:[3,4,3,5], comments:[], submitter:"Festive Fred", createdAt:Date.now()-259200000, tags:["drive","laser"], hours:"7pm – midnight", active:true, visits:5, description:"Drive-through experience with laser light tunnels.", holidays:["christmas"] },
-  { id:"s4", displayName:"Chicago Grand Ave Spectacular", address:"600 E Grand Ave, Chicago, IL", lat:41.8925, lng:-87.615, photo:null, ratings:[5,5], comments:[{author:"Winter",text:"Synchronized light show — jaw-dropping!",time:Date.now()-10000000}], submitter:"ChiTown Xmas", createdAt:Date.now()-100000000, tags:["sync","walk","laser","free"], hours:"5:30pm – 11pm", active:true, visits:21, description:"Award-winning synchronized display. Bring hot cocoa!", holidays:["christmas"] },
-  { id:"s5", displayName:"Spooky Street Salem", address:"310 Essex St, Salem, MA", lat:42.5195, lng:-70.8967, photo:null, ratings:[5,5,4], comments:[{author:"Dracula",text:"Best haunted block in New England!",time:Date.now()-50000000}], submitter:"Salem Haunt", createdAt:Date.now()-200000000, tags:["haunted","walkh","fog","scary"], hours:"7pm – midnight", active:true, visits:34, description:"Full street transformed into a haunted gauntlet. Not for the faint of heart!", holidays:["halloween"] },
-  { id:"s6", displayName:"Pumpkin Palace", address:"742 Evergreen Terrace, Springfield, IL", lat:39.7817, lng:-89.6501, photo:null, ratings:[4,4,5], comments:[{author:"Witch",text:"Amazing animatronics and free candy!",time:Date.now()-30000000}], submitter:"Pumpkin King", createdAt:Date.now()-150000000, tags:["animh","candy","fog"], hours:"6pm – 10pm", active:true, visits:18, description:"Over 50 animated characters and a candy station for the kids.", holidays:["halloween"] },
-];
+const SAMPLE_DATA = [];
 
 function getC(holiday) { return HOLIDAYS[holiday].colors; }
 
