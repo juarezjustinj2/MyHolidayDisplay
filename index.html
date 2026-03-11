@@ -220,7 +220,7 @@ function loadGoogleMaps() {
     window.gm_authFailure = function() { reject("auth"); };
     const s = document.createElement("script");
     s.id="gmap-script"; s.async=true; s.defer=true;
-    s.src="https://maps.googleapis.com/maps/api/js?key="+GOOGLE_MAPS_API_KEY+"&libraries=places&callback=Function.prototype";
+    s.src="https://maps.googleapis.com/maps/api/js?key="+GOOGLE_MAPS_API_KEY+"&callback=Function.prototype";
     s.onload=()=>{
       // Wait a tick for places to initialize
       setTimeout(()=>{
@@ -689,14 +689,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Address</label>
-                <div
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={e=>setEditAddress(e.currentTarget.textContent)}
-                  style={{...field, cursor:"text", whiteSpace:"pre-wrap"}}
-                  dangerouslySetInnerHTML={undefined}
-                  ref={el=>{if(el&&el.textContent!==editAddress&&document.activeElement!==el){el.textContent=editAddress;}}}
-                />
+                <input value={editAddress} onChange={e=>setEditAddress(e.target.value)} autoComplete="chrome-off" name="search" style={field}/>
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours</label>
