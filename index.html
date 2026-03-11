@@ -321,6 +321,7 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
   const [radius, setRadius] = useState("10");
   const [detecting, setDetecting] = useState(false);
   const [err, setErr] = useState("");
+  const [nearMeErr, setNearMeErr] = useState("");
 
   async function doZipSearch() {
     if (!zip.trim()) return; setErr("");
@@ -340,11 +341,12 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
   }
 
   function doNearMeNow() {
-    if (!navigator.geolocation) { onSearch({lat:37.422,lng:-122.0841,miles:10,label:"Within 10 miles of your location"}); return; }
+    setNearMeErr("");
+    if (!navigator.geolocation) { setNearMeErr("Location not supported — use ZIP search below."); setOpen(true); return; }
     setDetecting(true);
     navigator.geolocation.getCurrentPosition(
-      pos => { setDetecting(false); onSearch({lat:pos.coords.latitude,lng:pos.coords.longitude,miles:10,label:"Within 10 miles of your location"}); },
-      ()   => { setDetecting(false); setErr("Location blocked — try ZIP code."); }
+      pos => { setDetecting(false); setNearMeErr(""); onSearch({lat:pos.coords.latitude,lng:pos.coords.longitude,miles:10,label:"Within 10 miles of your location"}); },
+      ()   => { setDetecting(false); setNearMeErr("📍 Location blocked — please use ZIP code search below."); setOpen(true); }
     );
   }
 
@@ -365,6 +367,9 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
           : <><span style={{fontSize:20}}>📍</span> {holiday==="halloween"?"Haunts Near Me Now":"Lights Near Me Now"}</>
         }
       </button>
+
+      {/* Near Me error message */}
+      {nearMeErr&&<div style={{fontSize:13,color:C.cta,background:`${C.cta}12`,border:`1px solid ${C.cta}33`,borderRadius:10,padding:"10px 14px",marginBottom:10,textAlign:"center"}}>{nearMeErr}</div>}
 
       {/* Tag filter pills */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
