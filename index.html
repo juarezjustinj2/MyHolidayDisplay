@@ -695,8 +695,6 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   async function submitEdit(){
     if(!editAddress.trim())return;
     const oldPhotos = listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]);
-    console.log("OLD photos:", JSON.stringify(oldPhotos));
-    console.log("NEW editPhotos:", JSON.stringify(editPhotos));
     await deleteRemovedPhotos(oldPhotos, editPhotos);
     const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
     onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos});
