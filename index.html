@@ -29,6 +29,28 @@ const sbFetch = (path, opts={}) => fetch(SUPABASE_URL+path, {
   headers: {"apikey": SUPABASE_KEY, "Authorization": "Bearer "+SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=representation", ...(opts.headers||{})}
 });
 
+async function uploadPhotoToStorage(base64DataUrl) {
+  try {
+    const res = await fetch(base64DataUrl);
+    const blob = await res.blob();
+    const ext = blob.type.includes("png")?"png":"jpg";
+    const fileName = `listing_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/photos/${fileName}`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": "Bearer "+SUPABASE_KEY, "Content-Type": blob.type, "x-upsert": "true"},
+      body: blob
+    });
+    if (!uploadRes.ok) return base64DataUrl;
+    return `${SUPABASE_URL}/storage/v1/object/public/photos/${fileName}`;
+  } catch(e) { return base64DataUrl; }
+}
+
+async function uploadPhotosToStorage(base64Array) {
+  return Promise.all((base64Array||[]).map(p =>
+    p.startsWith("http") ? Promise.resolve(p) : uploadPhotoToStorage(p)
+  ));
+}
+
 async function dbGetListings() {
   try {
     const r = await sbFetch("/rest/v1/listings?select=*&order=created_at.desc");
@@ -653,7 +675,12 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
     });
   }
   function removeEditPhoto(i){setEditPhotos(p=>p.filter((_,idx)=>idx!==i));}
-  function submitEdit(){if(!editAddress.trim())return;onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:editPhotos[0]||null,photos:editPhotos});setMode("view");}
+  async function submitEdit(){
+    if(!editAddress.trim())return;
+    const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
+    onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos});
+    setMode("view");
+  }
 
   function handleShare(){
     const isHalloween=holiday==="halloween";
@@ -935,7 +962,10 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
     const fullAddress=[address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", ");
     let coords=await geocodeAddress(fullAddress);
     if (!coords){coords={lat:39.5+(Math.random()-.5)*10,lng:-98.35+(Math.random()-.5)*10};setNotice("Saved! Exact pin will appear on the live site.");}
-    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:photos[0]||null,photos:photos,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0});
+    // Upload photos to Supabase Storage
+    const uploadedPhotos = await uploadPhotosToStorage(photos);
+    const mainPhoto = uploadedPhotos[0]||null;
+    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:mainPhoto,photos:uploadedPhotos,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0});
     setLoading(false);
   }
 
