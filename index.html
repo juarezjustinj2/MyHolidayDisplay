@@ -1454,21 +1454,49 @@ function App() {
               <path d="M0 10 Q20 18 40 10 Q60 2 80 10 Q100 18 120 10 Q140 2 160 10 Q180 18 200 10 Q220 2 240 10 Q260 18 280 10 Q300 2 320 10"
                 fill="none" stroke={holiday==="halloween"?"#4a2060":"#1a3d2b"} strokeWidth="1.5"/>
               {holiday==="halloween"
-                ? [{x:40,c:"#e06010"},{x:80,c:"#7b2d8b"},{x:120,c:"#e06010"},{x:160,c:"#7b2d8b"},{x:200,c:"#e06010"},{x:240,c:"#7b2d8b"},{x:280,c:"#e06010"}].map((b,i)=>(
+                ? [{x:40,t:"pumpkin"},{x:80,t:"ghost"},{x:120,t:"pumpkin"},{x:160,t:"ghost"},{x:200,t:"pumpkin"},{x:240,t:"ghost"},{x:280,t:"pumpkin"}].map((b,i)=>(
                   <g key={i}>
-                    {/* Stem */}
-                    <rect x={b.x-1} y={10} width={3} height={5} rx={1} fill="#2d5a1b"/>
-                    {/* Pumpkin body - three lobes */}
-                    <ellipse cx={b.x-5} cy={26} rx={5} ry={7} fill={b.c} opacity="0.95"/>
-                    <ellipse cx={b.x} cy={24} rx={6} ry={8} fill={b.c} opacity="0.95"/>
-                    <ellipse cx={b.x+5} cy={26} rx={5} ry={7} fill={b.c} opacity="0.95"/>
-                    {/* Face - eyes */}
-                    <polygon points={`${b.x-4},21 ${b.x-2},19 ${b.x},21`} fill="#1a0a2e" opacity="0.7"/>
-                    <polygon points={`${b.x+1},21 ${b.x+3},19 ${b.x+5},21`} fill="#1a0a2e" opacity="0.7"/>
-                    {/* Face - mouth */}
-                    <path d={`M${b.x-3} 27 Q${b.x} 31 ${b.x+3} 27`} fill="none" stroke="#1a0a2e" strokeWidth="1.2" opacity="0.7"/>
-                    {/* Glow */}
-                    <ellipse cx={b.x} cy={26} rx={9} ry={10} fill={b.c} opacity="0.1"/>
+                    {/* Hanging cord */}
+                    <line x1={b.x} y1={10} x2={b.x} y2={16} stroke="#4a2060" strokeWidth="1.2"/>
+                    {b.t==="pumpkin"?(
+                      <g>
+                        {/* Lantern body - round paper lantern shape */}
+                        <ellipse cx={b.x} cy={28} rx={9} ry={11} fill="#f5c842" opacity="0.92"/>
+                        {/* Lantern ribs */}
+                        <ellipse cx={b.x} cy={28} rx={6} ry={11} fill="none" stroke="#e8a800" strokeWidth="0.8" opacity="0.6"/>
+                        <ellipse cx={b.x} cy={28} rx={3} ry={11} fill="none" stroke="#e8a800" strokeWidth="0.8" opacity="0.4"/>
+                        {/* Top cap */}
+                        <rect x={b.x-4} y={16} width={8} height={3} rx={1.5} fill="#c8860a"/>
+                        {/* Bottom cap */}
+                        <rect x={b.x-4} y={37} width={8} height={3} rx={1.5} fill="#c8860a"/>
+                        {/* Jack-o-lantern face - triangle eyes */}
+                        <polygon points={`${b.x-5},25 ${b.x-2},22 ${b.x+1},25`} fill="#1a0800" opacity="0.75"/>
+                        <polygon points={`${b.x+1},25 ${b.x+4},22 ${b.x+7},25`} fill="#1a0800" opacity="0.75"/>
+                        {/* Jagged smile */}
+                        <path d={`M${b.x-5} 30 L${b.x-3} 33 L${b.x-1} 30 L${b.x+1} 33 L${b.x+3} 30 L${b.x+5} 33 L${b.x+7} 30`} fill="none" stroke="#1a0800" strokeWidth="1" opacity="0.75"/>
+                        {/* Warm inner glow */}
+                        <ellipse cx={b.x} cy={28} rx={9} ry={11} fill="#ff9500" opacity="0.15"/>
+                      </g>
+                    ):(
+                      <g>
+                        {/* Ghost lantern - bell/dome shape */}
+                        {/* Ghost head dome */}
+                        <path d={`M${b.x-8} 28 Q${b.x-8} 16 ${b.x} 16 Q${b.x+8} 16 ${b.x+8} 28`} fill="#f0e8d0" opacity="0.93"/>
+                        {/* Ghost body with wavy bottom */}
+                        <path d={`M${b.x-8} 28 L${b.x-8} 36 Q${b.x-6} 39 ${b.x-4} 36 Q${b.x-2} 39 ${b.x} 36 Q${b.x+2} 39 ${b.x+4} 36 Q${b.x+6} 39 ${b.x+8} 36 L${b.x+8} 28 Z`} fill="#f0e8d0" opacity="0.93"/>
+                        {/* Lantern ribs */}
+                        <path d={`M${b.x-8} 28 Q${b.x-8} 16 ${b.x} 16 Q${b.x+8} 16 ${b.x+8} 28 L${b.x+8} 34 Q${b.x} 32 ${b.x-8} 34 Z`} fill="none" stroke="#c8b880" strokeWidth="0.7" opacity="0.4"/>
+                        {/* Top cap */}
+                        <rect x={b.x-3} y={14} width={6} height={3} rx={1.5} fill="#b8a860"/>
+                        {/* Ghost eyes - oval */}
+                        <ellipse cx={b.x-3} cy={26} rx={2.5} ry={3} fill="#1a0800" opacity="0.8"/>
+                        <ellipse cx={b.x+3} cy={26} rx={2.5} ry={3} fill="#1a0800" opacity="0.8"/>
+                        {/* Smile */}
+                        <path d={`M${b.x-3} 31 Q${b.x} 34 ${b.x+3} 31`} fill="none" stroke="#1a0800" strokeWidth="1" opacity="0.7"/>
+                        {/* Warm inner glow */}
+                        <ellipse cx={b.x} cy={27} rx={8} ry={10} fill="#ffcc44" opacity="0.12"/>
+                      </g>
+                    )}
                   </g>
                 ))
                 : [{x:40,c:"#e8392a"},{x:80,c:"#c9a84c"},{x:120,c:"#52b788"},{x:160,c:"#e8392a"},{x:200,c:"#c9a84c"},{x:240,c:"#52b788"},{x:280,c:"#e8392a"}].map((b,i)=>(
