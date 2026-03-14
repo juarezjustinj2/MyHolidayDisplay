@@ -39,7 +39,7 @@ async function dbGetListings() {
       displayName: row.display_name||"",
       address: row.address||"",
       lat: row.lat, lng: row.lng,
-      photo: row.photo, video: row.video,
+      photo: row.photo, photos: row.photos||[], video: row.video,
       ratings: row.ratings||[],
       comments: row.comments||[],
       submitter: row.submitter||"Anonymous",
@@ -63,7 +63,7 @@ async function dbSaveListing(listing) {
         display_name: listing.displayName,
         address: listing.address,
         lat: listing.lat, lng: listing.lng,
-        photo: listing.photo, video: listing.video,
+        photo: listing.photo, photos: listing.photos||[], video: listing.video,
         ratings: listing.ratings||[],
         comments: listing.comments||[],
         submitter: listing.submitter,
@@ -94,6 +94,7 @@ async function dbUpdateListing(id, updates) {
     if (updates.hours !== undefined) payload.hours = updates.hours;
     if (updates.tags !== undefined) payload.tags = updates.tags;
     if (updates.photo !== undefined) payload.photo = updates.photo;
+    if (updates.photos !== undefined) payload.photos = updates.photos;
     const r = await sbFetch("/rest/v1/listings?id=eq."+id, {method:"PATCH", body: JSON.stringify(payload)});
     return r.ok;
   } catch(e) { return false; }
@@ -521,7 +522,7 @@ function LeafletMapView({listings, onSelect, searchCenter, searchMiles, C}) {
 
 function MapPanel({listings, onSelect, searchCenter, searchMiles, C}) {
   const [engine,setEngine]=useState("loading");
-  useEffect(()=>{loadGoogleMaps().then(()=>setEngine("google")).catch(()=>setEngine("leaflet"));},[]);
+  useEffect(()=>{const t=setTimeout(()=>{loadGoogleMaps().then(()=>setEngine("google")).catch(()=>setEngine("leaflet"));},500);return()=>clearTimeout(t);},[]);
   return (
     <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:12,padding:20,boxShadow:`0 2px 14px ${C.shadow}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -540,6 +541,26 @@ function MapPanel({listings, onSelect, searchCenter, searchMiles, C}) {
 }
 
 // ─── Listing Card ─────────────────────────────────────────────────────────────
+function PhotoGallery({photos, height=200, borderRadius=10}) {
+  const [idx,setIdx]=useState(0);
+  const allPhotos=photos&&photos.length>0?photos:[];
+  if(!allPhotos.length) return null;
+  return (
+    <div style={{position:"relative",marginBottom:12,userSelect:"none"}}>
+      <img src={allPhotos[idx]} alt="" style={{width:"100%",height,objectFit:"cover",borderRadius,display:"block"}}/>
+      {allPhotos.length>1&&(
+        <>
+          <button onClick={e=>{e.stopPropagation();setIdx(i=>(i-1+allPhotos.length)%allPhotos.length);}} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.45)",color:"#fff",border:"none",borderRadius:"50%",width:30,height:30,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>‹</button>
+          <button onClick={e=>{e.stopPropagation();setIdx(i=>(i+1)%allPhotos.length);}} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.45)",color:"#fff",border:"none",borderRadius:"50%",width:30,height:30,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>›</button>
+          <div style={{position:"absolute",bottom:8,left:"50%",transform:"translateX(-50%)",display:"flex",gap:5}}>
+            {allPhotos.map((_,i)=><div key={i} onClick={e=>{e.stopPropagation();setIdx(i);}} style={{width:i===idx?16:6,height:6,borderRadius:3,background:i===idx?"#fff":"rgba(255,255,255,.5)",transition:"all .2s",cursor:"pointer"}}/>)}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ListingCard({listing, onSelect, dist, isFav, onToggleFav, C, holiday}) {
   const avg=avgRating(listing);
   const [hov,setHov]=useState(false);
@@ -560,7 +581,8 @@ function ListingCard({listing, onSelect, dist, isFav, onToggleFav, C, holiday}) 
 
       {listing.photo
         ?<div style={{position:"relative",flexShrink:0}}>
-           <img src={listing.photo} alt="" style={{width:72,height:72,objectFit:"cover",borderRadius:14,border:`1px solid ${C.border}66`,boxShadow:`0 2px 8px ${C.shadow}`}}/>
+           <img src={(listing.photos&&listing.photos.length>0?listing.photos[0]:listing.photo)} alt="" style={{width:72,height:72,objectFit:"cover",borderRadius:14,border:`1px solid ${C.border}66`,boxShadow:`0 2px 8px ${C.shadow}`}}/>
+           {(listing.photos&&listing.photos.length>1)&&<div style={{position:"absolute",bottom:2,left:2,background:"rgba(0,0,0,.65)",borderRadius:4,padding:"1px 5px",fontSize:10,color:"#fff",fontWeight:700}}>1/{listing.photos.length}</div>}
            {listing.video&&<div style={{position:"absolute",bottom:2,right:2,background:"rgba(0,0,0,.65)",borderRadius:4,padding:"1px 4px",fontSize:10,color:"#fff"}}>🎥</div>}
          </div>
         :<div style={{width:72,height:72,background:`linear-gradient(135deg,${C.creamDark},${C.cream})`,borderRadius:14,border:`1px solid ${C.border}88`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,position:"relative",boxShadow:`inset 0 1px 3px ${C.shadow}`}}>
@@ -602,8 +624,8 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [editDescription,setEditDescription]=useState(listing.description||"");
   const [editHours,setEditHours]=useState(listing.hours||"");
   const [editTags,setEditTags]=useState(listing.tags||[]);
-  const [editPhoto,setEditPhoto]=useState(listing.photo||null);
-  const [editPhotoPreview,setEditPhotoPreview]=useState(listing.photo||null);
+  const [editPhotos,setEditPhotos]=useState(listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]));
+
   const avg=avgRating(listing);
   const allTags = TAGS[holiday]||TAGS.christmas;
   const tags=(listing.tags||[]).map(tid=>allTags.find(t=>t.id===tid)).filter(Boolean);
@@ -612,25 +634,26 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   function startPinCheck(action){setPinAction(action);setPinInput("");setPinError("");setMode("pin");}
   function submitPin(){if(pinInput===listing.pin){setPinError("");setMode(pinAction);}else{setPinError("Incorrect PIN. Please try again.");}}
   function handleEditPhoto(e){
-    const f=e.target.files[0];if(!f)return;
-    const r=new FileReader();
-    r.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        const MAX=800;
-        let w=img.width,h=img.height;
-        if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
-        const canvas=document.createElement("canvas");
-        canvas.width=w;canvas.height=h;
-        canvas.getContext("2d").drawImage(img,0,0,w,h);
-        const compressed=canvas.toDataURL("image/jpeg",0.75);
-        setEditPhoto(compressed);setEditPhotoPreview(compressed);
+    const files=Array.from(e.target.files).slice(0,3-editPhotos.length);
+    files.forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>{
+        const img=new Image();
+        img.onload=()=>{
+          const MAX=800;let w=img.width,h=img.height;
+          if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
+          const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+          canvas.getContext("2d").drawImage(img,0,0,w,h);
+          const compressed=canvas.toDataURL("image/jpeg",0.75);
+          setEditPhotos(p=>[...p,compressed].slice(0,3));
+        };
+        img.src=ev.target.result;
       };
-      img.src=ev.target.result;
-    };
-    r.readAsDataURL(f);
+      r.readAsDataURL(f);
+    });
   }
-  function submitEdit(){if(!editAddress.trim())return;onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:editPhoto});setMode("view");}
+  function removeEditPhoto(i){setEditPhotos(p=>p.filter((_,idx)=>idx!==i));}
+  function submitEdit(){if(!editAddress.trim())return;onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:editPhotos[0]||null,photos:editPhotos});setMode("view");}
 
   function handleShare(){
     const isHalloween=holiday==="halloween";
@@ -689,7 +712,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Address</label>
-                <input value={editAddress} onChange={e=>setEditAddress(e.target.value)} autoComplete="chrome-off" name="search" style={field}/>
+                <input type="search" value={editAddress} onChange={e=>setEditAddress(e.target.value)} autoComplete="off" data-lpignore="true" data-form-type="other" style={{...field, WebkitAppearance:"none"}}/>
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours</label>
@@ -704,15 +727,22 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
                 </div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>Photo</label>
-                {editPhotoPreview&&<div style={{marginBottom:10,position:"relative",display:"inline-block"}}>
-                  <img src={editPhotoPreview} alt="" style={{width:120,height:90,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`,display:"block"}}/>
-                  <button type="button" onClick={()=>{setEditPhoto(null);setEditPhotoPreview(null);}} style={{position:"absolute",top:-6,right:-6,background:C.cta,color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
-                </div>}
-                <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:C.creamDark,border:`1.5px dashed ${C.border}`,borderRadius:10,cursor:"pointer",fontSize:13,color:C.textMid,width:"fit-content"}}>
-                  📷 {editPhotoPreview?"Change Photo":"Add Photo"}
-                  <input type="file" accept="image/*" onChange={handleEditPhoto} style={{display:"none"}}/>
-                </label>
+                <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>Photos — up to 3</label>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {editPhotos.map((src,i)=>(
+                    <div key={i} style={{position:"relative",width:80,height:80,flexShrink:0}}>
+                      <img src={src} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+                      <button type="button" onClick={()=>removeEditPhoto(i)} style={{position:"absolute",top:-6,right:-6,background:C.cta,color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+                    </div>
+                  ))}
+                  {editPhotos.length<3&&(
+                    <label style={{width:80,height:80,background:C.creamDark,border:`2px dashed ${C.border}`,borderRadius:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.textLight,fontSize:11,gap:3,flexShrink:0}}>
+                      <div style={{fontSize:20}}>📷</div>
+                      <div>Add</div>
+                      <input type="file" accept="image/*" multiple onChange={handleEditPhoto} style={{display:"none"}}/>
+                    </label>
+                  )}
+                </div>
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Description</label>
@@ -742,7 +772,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
 
         {/* Main view */}
         {mode==="view"&&(<>
-        {listing.photo&&<img src={listing.photo} alt="" style={{width:"100%",height:200,objectFit:"cover",borderRadius:10,marginBottom:12,border:`1px solid ${C.border}`}}/>}
+        <PhotoGallery photos={listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[])} height={220} borderRadius={10}/>
         {listing.video&&<div style={{marginBottom:16}}><video src={listing.video} controls style={{width:"100%",borderRadius:10,border:`1px solid ${C.border}`,background:"#000",maxHeight:220}}/></div>}
 
         {/* Title + active toggle */}
@@ -853,8 +883,8 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
   const [hours,setHours]=useState("");
   const [tags,setTags]=useState([]);
   const [pin,setPin]=useState("");
-  const [photo,setPhoto]=useState(null);
-  const [preview,setPreview]=useState(null);
+  const [photos,setPhotos]=useState([]);
+  const [previews,setPreviews]=useState([]);
   const [video,setVideo]=useState(null);
   const [videoName,setVideoName]=useState("");
   const [loading,setLoading]=useState(false);
@@ -869,8 +899,7 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
     setMapsLoaded(false);
   },[]);
 
-  function handlePhoto(e){
-    const f=e.target.files[0];if(!f)return;
+  function compressImage(file, cb){
     const r=new FileReader();
     r.onload=ev=>{
       const img=new Image();
@@ -881,13 +910,20 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
         const canvas=document.createElement("canvas");
         canvas.width=w;canvas.height=h;
         canvas.getContext("2d").drawImage(img,0,0,w,h);
-        const compressed=canvas.toDataURL("image/jpeg",0.75);
-        setPhoto(compressed);setPreview(compressed);
+        cb(canvas.toDataURL("image/jpeg",0.75));
       };
       img.src=ev.target.result;
     };
-    r.readAsDataURL(f);
+    r.readAsDataURL(file);
   }
+  function handlePhoto(e){
+    const files=Array.from(e.target.files).slice(0,3-photos.length);
+    files.forEach(f=>compressImage(f,compressed=>{
+      setPhotos(p=>[...p,compressed].slice(0,3));
+      setPreviews(p=>[...p,compressed].slice(0,3));
+    }));
+  }
+  function removePhoto(i){setPhotos(p=>p.filter((_,idx)=>idx!==i));setPreviews(p=>p.filter((_,idx)=>idx!==i));}
   function handleVideo(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setVideo(ev.target.result);setVideoName(f.name);};r.readAsDataURL(f);}
   const H = HOLIDAYS[holiday];
   const allTags = TAGS[holiday];
@@ -899,7 +935,7 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
     const fullAddress=[address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", ");
     let coords=await geocodeAddress(fullAddress);
     if (!coords){coords={lat:39.5+(Math.random()-.5)*10,lng:-98.35+(Math.random()-.5)*10};setNotice("Saved! Exact pin will appear on the live site.");}
-    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0});
+    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:photos[0]||null,photos:photos,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0});
     setLoading(false);
   }
 
@@ -982,11 +1018,22 @@ function SubmitForm({onSubmit, onClose, C, holiday}) {
               <div style={{fontSize:11,color:C.textLight,marginTop:4}}>{description.length}/500</div>
             </div>
             <div>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Photo (optional)</label>
-              <label style={{display:"block",background:C.white,border:`2px dashed ${C.border}`,borderRadius:10,padding:16,textAlign:"center",cursor:"pointer",color:C.textLight,fontSize:13,transition:"border-color .2s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.primaryMid} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                {preview?<img src={preview} alt="" style={{maxHeight:100,borderRadius:6,maxWidth:"100%"}}/>:<><div style={{fontSize:22,marginBottom:4}}>📷</div><div>Tap to upload photo</div></>}
-                <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
-              </label>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>Photos — up to 3 (optional)</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {previews.map((src,i)=>(
+                  <div key={i} style={{position:"relative",width:90,height:90,flexShrink:0}}>
+                    <img src={src} alt="" style={{width:90,height:90,objectFit:"cover",borderRadius:10,border:`1px solid ${C.border}`}}/>
+                    <button type="button" onClick={()=>removePhoto(i)} style={{position:"absolute",top:-6,right:-6,background:C.cta,color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+                  </div>
+                ))}
+                {previews.length<3&&(
+                  <label style={{width:90,height:90,background:C.white,border:`2px dashed ${C.border}`,borderRadius:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.textLight,fontSize:12,gap:4,flexShrink:0}}>
+                    <div style={{fontSize:22}}>📷</div>
+                    <div>Add Photo</div>
+                    <input type="file" accept="image/*" multiple onChange={handlePhoto} style={{display:"none"}}/>
+                  </label>
+                )}
+              </div>
             </div>
             <div>
               <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Video (optional)</label>
@@ -1018,7 +1065,7 @@ function RouteGenerator({listings, C, holiday}) {
   const [totalMiles, setTotalMiles] = useState(0);
 
   useEffect(()=>{
-    loadGoogleMaps().then(()=>setMapEngine("google")).catch(()=>setMapEngine("leaflet"));
+    setTimeout(()=>{loadGoogleMaps().then(()=>setMapEngine("google")).catch(()=>setMapEngine("leaflet"));},500);
   },[]);
 
   // Recalculate total distance whenever selection changes
@@ -1257,7 +1304,7 @@ function App() {
   function saveFavs(updated){setFavorites(updated);try{localStorage.setItem(STORAGE_KEY+"-favs",JSON.stringify(updated));}catch(e){}}
 
   const handleSubmit=useCallback(async d=>{
-    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday]};
+    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday]};
     const dbId = await dbSaveListing(newListing);
     if (dbId) newListing.id = dbId;
     setListings(p=>[newListing,...p]);
@@ -1357,6 +1404,7 @@ function App() {
         .card-enter{animation:fadeUp .35s cubic-bezier(.25,.46,.45,.94) forwards}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
         input,textarea,button{font-family:inherit;-webkit-appearance:none}
+        input[name='edit-address-field']{-webkit-user-modify:read-write-plaintext-only}
         input::placeholder,textarea::placeholder{color:${C.textLight}}
         input:focus,textarea:focus{outline:none;border-color:${C.primaryMid}!important;box-shadow:0 0 0 3px ${C.shadow}!important}
         .pac-container{background:${C.white}!important;border:1px solid ${C.border}!important;border-radius:12px!important;font-family:Georgia,serif!important;box-shadow:0 8px 32px rgba(0,0,0,.18)!important;z-index:9999!important;overflow:hidden!important}
