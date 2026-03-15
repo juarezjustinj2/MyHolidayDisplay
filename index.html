@@ -1066,7 +1066,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
             )}
             {!duplicateWarning&&<button onClick={()=>{
               if(!step1Ok) return;
-              const dup = findDuplicateListing(listings, [address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", "));
+              const dup = findDuplicateListing(listings.filter(l=>(l.holidays||[]).includes(holiday)), [address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", "));
               if(dup){setDuplicateWarning(dup);return;}
               setStep(2);
             }} disabled={!step1Ok} style={{padding:"13px",borderRadius:10,border:"none",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:16,cursor:step1Ok?"pointer":"not-allowed",background:step1Ok?C.primary:"#ccc",color:step1Ok?C.cream:"#888",marginTop:4}}>
@@ -1392,7 +1392,7 @@ function App() {
 
   const handleSubmit=useCallback(async d=>{
     // Check for duplicate address + zip
-    const duplicate = findDuplicateListing(listings, d.address);
+    const duplicate = findDuplicateListing(listings.filter(l=>(l.holidays||[]).includes(holiday)), d.address);
     if (duplicate) {
       d.onDuplicate && d.onDuplicate(duplicate);
       return;
