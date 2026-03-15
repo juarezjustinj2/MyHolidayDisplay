@@ -952,6 +952,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
   const [hours,setHours]=useState("");
   const [tags,setTags]=useState([]);
   const [pin,setPin]=useState("");
+  const [confirmPin,setConfirmPin]=useState("");
   const [photos,setPhotos]=useState([]);
   const [previews,setPreviews]=useState([]);
   const [video,setVideo]=useState(null);
@@ -1025,7 +1026,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
 
   const field={padding:"12px 14px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:16,color:C.textDark,background:C.cream,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
   const step1Ok = address.trim().length > 0;
-  const step2Ok = pin.length===4;
+  const step2Ok = pin.length===4 && confirmPin===pin;
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(10,25,15,.55)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
@@ -1095,6 +1096,12 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
               <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>4-Digit Edit PIN *</label>
               <input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Choose a PIN to edit later" maxLength={4} type="password" style={{...field,letterSpacing:pin.length?"6px":"0",fontFamily:pin.length?"monospace":"inherit"}}/>
               <div style={{fontSize:11,color:C.textLight,marginTop:4}}>🔒 You'll need this PIN to edit or delete your listing.</div>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Confirm PIN *</label>
+              <input value={confirmPin} onChange={e=>setConfirmPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Re-enter your PIN" maxLength={4} type="password" style={{...field,letterSpacing:confirmPin.length?"6px":"0",fontFamily:confirmPin.length?"monospace":"inherit",borderColor:confirmPin.length===4?(confirmPin===pin?C.primaryMid:C.cta):C.border}}/>
+              {confirmPin.length===4&&confirmPin!==pin&&<div style={{fontSize:11,color:C.cta,marginTop:4}}>⚠️ PINs don't match — please check and try again.</div>}
+              {confirmPin.length===4&&confirmPin===pin&&<div style={{fontSize:11,color:"#1a6a30",marginTop:4}}>✓ PINs match!</div>}
             </div>
             <div>
               <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours (optional)</label>
