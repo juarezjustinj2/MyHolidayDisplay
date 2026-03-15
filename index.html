@@ -435,7 +435,7 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
       {nearMeErr&&<div style={{fontSize:13,color:C.cta,background:`${C.cta}12`,border:`1px solid ${C.cta}33`,borderRadius:10,padding:"10px 14px",marginBottom:10,textAlign:"center"}}>{nearMeErr}</div>}
 
       {/* Tag filter pills */}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,justifyContent:"center"}}>
         {allTags.map(t=>{
           const on = activeTags.includes(t.id);
           return (
@@ -682,6 +682,12 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [pinError,setPinError]=useState("");
   const [pinAction,setPinAction]=useState("");
   const [editAddress,setEditAddress]=useState(listing.address);
+  // Split address into parts for editing
+  const addrParts = listing.address.split(",").map(s=>s.trim());
+  const [editStreet,setEditStreet]=useState(addrParts[0]||"");
+  const [editCity,setEditCity]=useState(addrParts[1]||"");
+  const [editStateVal,setEditStateVal]=useState(addrParts[2]||"");
+  const [editZip,setEditZip]=useState(addrParts[3]||"");
   const [editDisplayName,setEditDisplayName]=useState(listing.displayName||"");
   const [editDescription,setEditDescription]=useState(listing.description||"");
   const [editHours,setEditHours]=useState(listing.hours||"");
@@ -716,11 +722,12 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   }
   function removeEditPhoto(i){setEditPhotos(p=>p.filter((_,idx)=>idx!==i));}
   async function submitEdit(){
-    if(!editAddress.trim())return;
+    const fullEditAddress=[editStreet.trim(),editCity.trim(),editStateVal.trim(),editZip.trim()].filter(Boolean).join(", ");
+    if(!fullEditAddress.trim())return;
     const oldPhotos = listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]);
     await deleteRemovedPhotos(oldPhotos, editPhotos);
     const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
-    onEdit(listing.id,{address:editAddress.trim(),displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos});
+    onEdit(listing.id,{address:fullEditAddress,displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos});
     setMode("view");
   }
 
@@ -781,7 +788,12 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Address</label>
-                <input type="search" value={editAddress} onChange={e=>setEditAddress(e.target.value)} autoComplete="off" data-lpignore="true" data-form-type="other" style={{...field, WebkitAppearance:"none"}}/>
+                <input value={editStreet} onChange={e=>setEditStreet(e.target.value)} placeholder="Street address" autoComplete="off" data-lpignore="true" style={{...field,marginBottom:8}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <input value={editCity} onChange={e=>setEditCity(e.target.value)} placeholder="City" autoComplete="off" data-lpignore="true" style={{...field,flex:2}}/>
+                  <input value={editStateVal} onChange={e=>setEditStateVal(e.target.value.slice(0,2).toUpperCase())} placeholder="ST" maxLength={2} autoComplete="off" data-lpignore="true" style={{...field,flex:1}}/>
+                  <input value={editZip} onChange={e=>setEditZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="ZIP" maxLength={5} autoComplete="off" data-lpignore="true" inputMode="numeric" style={{...field,flex:1}}/>
+                </div>
               </div>
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours</label>
