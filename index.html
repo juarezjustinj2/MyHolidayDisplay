@@ -548,7 +548,7 @@ function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C, holida
       markersRef.current.push(marker);
     });
     if (!searchCenter&&listings.length>1){const b=new G.maps.LatLngBounds();listings.forEach(l=>b.extend({lat:l.lat,lng:l.lng}));mapRef.current.fitBounds(b,{padding:50});}
-  },[listings,searchCenter,searchMiles]);
+  },[listings,searchCenter,searchMiles,holiday]);
   return <div ref={ref} style={{height:"min(440px,55vw)",borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}/>;
 }
 
