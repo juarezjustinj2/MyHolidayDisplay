@@ -296,17 +296,17 @@ async function geocodeAddress(address) {
   // Fallback: Google Geocoding REST API directly
   try {
     const r = await withTimeout(fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_API_KEY}`), 5000);
-    if (!r) return null;
+    if (!r) throw new Error("timeout");
     const d = await r.json();
     if (d.status==="OK"&&d.results[0]) {
       const loc = d.results[0].geometry.location;
       return {lat:loc.lat, lng:loc.lng};
     }
   } catch(e){}
-  // Last resort: Nominatim
+  // Last resort: Nominatim (free, no key required)
   try {
-    const r = await withTimeout(fetch("https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(address)+"&limit=1"), 5000);
-    if (!r) return null;
+    const r = await withTimeout(fetch("https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(address)+"&limit=1&accept-language=en"), 8000);
+    if (!r) throw new Error("timeout");
     const d = await r.json();
     if (d.length) return {lat:parseFloat(d[0].lat),lng:parseFloat(d[0].lon)};
   } catch(e){}
