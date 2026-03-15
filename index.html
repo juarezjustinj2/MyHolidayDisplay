@@ -505,7 +505,7 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
 }
 
 // ─── Maps ────────────────────────────────────────────────────────────────────
-function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C}) {
+function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C, holiday="christmas"}) {
   const ref = useRef(null), mapRef = useRef(null), markersRef = useRef([]), circleRef = useRef(null), iwRef = useRef(null);
   useEffect(()=>{
     if (!ref.current||!window.google||!window.google.maps) return;
@@ -552,7 +552,7 @@ function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C}) {
   return <div ref={ref} style={{height:"min(440px,55vw)",borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}/>;
 }
 
-function LeafletMapView({listings, onSelect, searchCenter, searchMiles, C}) {
+function LeafletMapView({listings, onSelect, searchCenter, searchMiles, C, holiday="christmas"}) {
   const ref=useRef(null), mapRef=useRef(null);
   const [ready,setReady]=useState(!!window.L);
   useEffect(()=>{
@@ -582,7 +582,7 @@ function LeafletMapView({listings, onSelect, searchCenter, searchMiles, C}) {
   return <div ref={ref} style={{height:"min(440px,55vw)",borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}/>;
 }
 
-function MapPanel({listings, onSelect, searchCenter, searchMiles, C}) {
+function MapPanel({listings, onSelect, searchCenter, searchMiles, C, holiday="christmas"}) {
   const [engine,setEngine]=useState("loading");
   useEffect(()=>{const t=setTimeout(()=>{loadGoogleMaps().then(()=>setEngine("google")).catch(()=>setEngine("leaflet"));},500);return()=>clearTimeout(t);},[]);
   return (
@@ -595,8 +595,8 @@ function MapPanel({listings, onSelect, searchCenter, searchMiles, C}) {
         {engine!=="loading"&&<span style={{fontSize:11,color:C.textLight,background:C.creamDark,padding:"3px 9px",borderRadius:10,border:`1px solid ${C.border}`}}>{engine==="google"?"Google Maps":"OpenStreetMap"}</span>}
       </div>
       {engine==="loading"&&<div style={{height:"min(440px,55vw)",background:C.creamDark,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:C.textLight,border:`1px solid ${C.border}`}}>Loading map…</div>}
-      {engine==="google"&&<GoogleMapView listings={listings} onSelect={onSelect} searchCenter={searchCenter} searchMiles={searchMiles} C={C}/>}
-      {engine==="leaflet"&&<LeafletMapView listings={listings} onSelect={onSelect} searchCenter={searchCenter} searchMiles={searchMiles} C={C}/>}
+      {engine==="google"&&<GoogleMapView listings={listings} onSelect={onSelect} searchCenter={searchCenter} searchMiles={searchMiles} C={C} holiday={holiday}/>}
+      {engine==="leaflet"&&<LeafletMapView listings={listings} onSelect={onSelect} searchCenter={searchCenter} searchMiles={searchMiles} C={C} holiday={holiday}/>}
       <div style={{marginTop:10,fontSize:12,color:C.textLight}}>📍 {listings.length} location{listings.length!==1?"s":""} · Click a pin to view details</div>
     </div>
   );
@@ -1694,7 +1694,7 @@ function App() {
         )}
 
         {view==="map"
-          ?<MapPanel listings={displayed} onSelect={setSelected} searchCenter={searchCenter} searchMiles={activeSearch?.miles} C={C}/>
+          ?<MapPanel listings={displayed} onSelect={setSelected} searchCenter={searchCenter} searchMiles={activeSearch?.miles} C={C} holiday={holiday}/>
           :view==="route"
           ?<RouteGenerator listings={holidayListings} C={C} holiday={holiday}/>
           :(
