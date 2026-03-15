@@ -1004,7 +1004,16 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
     setLoading(true); setNotice("");
     const fullAddress=[address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", ");
     let coords=await geocodeAddress(fullAddress);
-    if (!coords){coords={lat:39.5+(Math.random()-.5)*10,lng:-98.35+(Math.random()-.5)*10};setNotice("Saved! Exact pin will appear on the live site.");}
+    if (!coords){
+      // Try with just street + zip as a simpler query
+      const simpleAddress = [address.trim(), zip.trim(), "USA"].filter(Boolean).join(", ");
+      coords = await geocodeAddress(simpleAddress);
+    }
+    if (!coords){
+      setLoading(false);
+      setNotice("⚠️ Could not find this address. Please check the street address and ZIP code and try again.");
+      return;
+    }
     // Upload photos to Supabase Storage
     const uploadedPhotos = await uploadPhotosToStorage(photos);
     const mainPhoto = uploadedPhotos[0]||null;
@@ -1055,7 +1064,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
                 <input value={stateVal} onChange={e=>setStateVal(e.target.value.slice(0,2).toUpperCase())} placeholder="ST" maxLength={2} style={{...field,flex:1,textTransform:"uppercase"}}/>
                 <input value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="ZIP" maxLength={5} style={{...field,flex:1}} inputMode="numeric"/>
               </div>
-              {notice&&<div style={{marginTop:6,fontSize:12,color:C.primaryMid,background:"#e8f5ee",borderRadius:6,padding:"5px 10px"}}>✓ {notice}</div>}
+              {notice&&<div style={{marginTop:6,fontSize:12,color:notice.startsWith("⚠️")?C.cta:C.primaryMid,background:notice.startsWith("⚠️")?"#fff0ee":"#e8f5ee",borderRadius:6,padding:"5px 10px"}}>{notice}</div>}
             </div>
             {duplicateWarning&&(
               <div style={{background:"#fff8e8",border:"1.5px solid #f0c040",borderRadius:12,padding:"12px 16px",marginTop:4}}>
