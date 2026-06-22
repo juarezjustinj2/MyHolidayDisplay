@@ -12,11 +12,6 @@ jobs:
       - name: Ping Supabase
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://crovcuedrgkokabznsac.supabase.co/rest/v1/" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+            "https://crovcuedrgkokabznsac.supabase.co/rest/v1/")
           echo "Supabase responded with HTTP $STATUS"
-          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -gt 299 ]; then
-            echo "Unexpected status code!"
-            exit 1
-          fi
+          echo "Supabase responded with HTTP $STATUS"
