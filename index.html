@@ -23,11 +23,35 @@ const GOOGLE_MAPS_API_KEY = "AIzaSyBIQl6gOZh7675WBSNtCCO4IjboEBImRC8";
 const SUPABASE_URL = "https://crovcuedrgkokabznsac.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyb3ZjdWVkcmdrb2thYnpuc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMDUyNzEsImV4cCI6MjA4ODU4MTI3MX0.q35UR5RloSNn8ix0yn8TYo-vAoysU1OwY_eX9EvGw80";
 
+// Columns the browser is allowed to read. "pin" is deliberately absent --
+// it is revoked from the anon role in Postgres and never leaves the server.
+const LISTING_COLS = "id,display_name,address,lat,lng,photo,photos,video,ratings,"
+  + "comments,submitter,created_at,tags,hours,active,visits,description,holidays,has_pin";
+
 // ─── Supabase helpers ────────────────────────────────────────────────────────
 const sbFetch = (path, opts={}) => fetch(SUPABASE_URL+path, {
   ...opts,
   headers: {"apikey": SUPABASE_KEY, "Authorization": "Bearer "+SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=representation", ...(opts.headers||{})}
 });
+
+// Calls a Postgres function. The PIN is checked server-side inside the
+// function; a wrong PIN raises an exception and PostgREST returns non-2xx.
+async function sbRpc(fn, args) {
+  try {
+    const r = await sbFetch("/rest/v1/rpc/"+fn, {method:"POST", body: JSON.stringify(args)});
+    return r.ok;
+  } catch(e) { return false; }
+}
+
+async function dbVerifyPin(id, pin) {
+  try {
+    const r = await sbFetch("/rest/v1/rpc/verify_listing_pin", {
+      method:"POST", body: JSON.stringify({p_id: Number(id), p_pin: String(pin)})
+    });
+    if (!r.ok) return false;
+    return await r.json() === true;
+  } catch(e) { return false; }
+}
 
 async function uploadPhotoToStorage(base64DataUrl) {
   try {
@@ -70,7 +94,7 @@ async function deleteRemovedPhotos(oldPhotos, newPhotos) {
 
 async function dbGetListings() {
   try {
-    const r = await sbFetch("/rest/v1/listings?select=*&order=created_at.desc");
+    const r = await sbFetch("/rest/v1/listings?select="+LISTING_COLS+"&order=created_at.desc");
     if (!r.ok) return null;
     const rows = await r.json();
     return rows.map(row => ({
@@ -89,14 +113,14 @@ async function dbGetListings() {
       visits: row.visits||0,
       description: row.description||"",
       holidays: row.holidays||["christmas"],
-      pin: row.pin||"",
+      hasPin: row.has_pin===true,
     }));
   } catch(e) { return null; }
 }
 
 async function dbSaveListing(listing) {
   try {
-    const r = await sbFetch("/rest/v1/listings", {
+    const r = await sbFetch("/rest/v1/listings?select=id", {
       method: "POST",
       body: JSON.stringify({
         display_name: listing.displayName,
@@ -121,29 +145,40 @@ async function dbSaveListing(listing) {
   } catch(e) { return null; }
 }
 
-async function dbUpdateListing(id, updates) {
+// Community writes: ratings, comments, visit counts. These are the ONLY three
+// columns the anon role holds an UPDATE grant on, so nothing else can slip in.
+async function dbUpdateCommunity(id, updates) {
   try {
     const payload = {};
-    if (updates.ratings !== undefined) payload.ratings = updates.ratings;
+    if (updates.ratings  !== undefined) payload.ratings  = updates.ratings;
     if (updates.comments !== undefined) payload.comments = updates.comments;
-    if (updates.visits !== undefined) payload.visits = updates.visits;
-    if (updates.active !== undefined) payload.active = updates.active;
-    if (updates.displayName !== undefined) payload.display_name = updates.displayName;
-    if (updates.description !== undefined) payload.description = updates.description;
-    if (updates.hours !== undefined) payload.hours = updates.hours;
-    if (updates.tags !== undefined) payload.tags = updates.tags;
-    if (updates.photo !== undefined) payload.photo = updates.photo;
-    if (updates.photos !== undefined) payload.photos = updates.photos;
-    const r = await sbFetch("/rest/v1/listings?id=eq."+id, {method:"PATCH", body: JSON.stringify(payload)});
+    if (updates.visits   !== undefined) payload.visits   = updates.visits;
+    if (!Object.keys(payload).length) return false;
+    const r = await sbFetch("/rest/v1/listings?id=eq."+id+"&select=id",
+      {method:"PATCH", body: JSON.stringify(payload)});
     return r.ok;
   } catch(e) { return false; }
 }
 
-async function dbDeleteListing(id) {
-  try {
-    const r = await sbFetch("/rest/v1/listings?id=eq."+id, {method:"DELETE"});
-    return r.ok;
-  } catch(e) { return false; }
+// Owner writes: require the PIN, checked inside Postgres.
+async function dbUpdateOwner(id, pin, changes) {
+  const patch = {};
+  if (changes.address     !== undefined) patch.address      = changes.address;
+  if (changes.displayName !== undefined) patch.display_name = changes.displayName;
+  if (changes.description !== undefined) patch.description  = changes.description;
+  if (changes.hours       !== undefined) patch.hours        = changes.hours;
+  if (changes.tags        !== undefined) patch.tags         = changes.tags;
+  if (changes.photo       !== undefined) patch.photo        = changes.photo;
+  if (changes.photos      !== undefined) patch.photos       = changes.photos;
+  if (changes.active      !== undefined) patch.active       = changes.active;
+  if (changes.lat         !== undefined) patch.lat          = changes.lat;
+  if (changes.lng         !== undefined) patch.lng          = changes.lng;
+  return await sbRpc("update_listing_owner",
+    {p_id: Number(id), p_pin: String(pin||""), p_patch: patch});
+}
+
+async function dbDeleteListing(id, pin) {
+  return await sbRpc("delete_listing", {p_id: Number(id), p_pin: String(pin||"")});
 }
 
 // ─── Holiday Themes ───────────────────────────────────────────────────────────
@@ -318,7 +353,7 @@ async function geocodeAddress(address) {
   }
   // Fallback: Google Geocoding REST API directly
   try {
-    const r = await withTimeout(fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_API_KEY}`), 5000);
+    const r = await withTimeout(fetch(`/api/geocode?address=${encodeURIComponent(address)}`), 5000);
     if (!r) return null;
     const d = await r.json();
     if (d.status==="OK"&&d.results[0]) {
@@ -683,6 +718,8 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [pinInput,setPinInput]=useState("");
   const [pinError,setPinError]=useState("");
   const [pinAction,setPinAction]=useState("");
+  const [pinBusy,setPinBusy]=useState(false);
+  const [verifiedPin,setVerifiedPin]=useState("");
   const [editAddress,setEditAddress]=useState(listing.address);
   // Split address into parts for editing
   const addrParts = listing.address.split(",").map(s=>s.trim());
@@ -702,7 +739,16 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
 
   function postComment(){if(!comment.trim())return;onComment(listing.id,author.trim()||"Anonymous",comment.trim());setComment("");setAuthor("");}
   function startPinCheck(action){setPinAction(action);setPinInput("");setPinError("");setMode("pin");}
-  function submitPin(){if(pinInput===listing.pin){setPinError("");setMode(pinAction);}else{setPinError("Incorrect PIN. Please try again.");}}
+  async function submitPin(){
+    if(pinBusy) return;
+    setPinBusy(true); setPinError("");
+    const ok = await dbVerifyPin(listing.id, pinInput);
+    setPinBusy(false);
+    if(!ok){ setPinError("Incorrect PIN. Please try again."); return; }
+    setVerifiedPin(pinInput);
+    if(pinAction==="toggle"){ onToggleActive(listing.id, pinInput); setMode("view"); return; }
+    setMode(pinAction);
+  }
   function handleEditPhoto(e){
     const files=Array.from(e.target.files).slice(0,3-editPhotos.length);
     files.forEach(f=>{
@@ -729,7 +775,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
     const oldPhotos = listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]);
     await deleteRemovedPhotos(oldPhotos, editPhotos);
     const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
-    onEdit(listing.id,{address:fullEditAddress,displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos});
+    onEdit(listing.id,{address:fullEditAddress,displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos},verifiedPin);
     setMode("view");
   }
 
@@ -770,11 +816,11 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
             <div style={{fontSize:36,marginBottom:12}}>🔒</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:18,color:C.primary,marginBottom:6}}>Enter Your PIN</div>
             <div style={{fontSize:13,color:C.textLight,marginBottom:20}}>Enter the 4-digit PIN you created when submitting this listing.</div>
-            <input value={pinInput} onChange={e=>{setPinInput(e.target.value.replace(/\D/g,"").slice(0,4));setPinError("");}} onKeyDown={e=>{if(e.key==="Enter")submitPin();}} type="password" maxLength={4} placeholder="••••" style={{...field,textAlign:"center",fontSize:22,letterSpacing:"10px",width:140,margin:"0 auto 10px",display:"block"}} autoFocus/>
+            <input value={pinInput} onChange={e=>{setPinInput(e.target.value.replace(/\D/g,"").slice(0,4));setPinError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!pinBusy)submitPin();}} type="password" maxLength={4} placeholder="••••" style={{...field,textAlign:"center",fontSize:22,letterSpacing:"10px",width:140,margin:"0 auto 10px",display:"block"}} autoFocus/>
             {pinError&&<div style={{color:C.cta,fontSize:13,marginBottom:12}}>⚠️ {pinError}</div>}
             <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:16}}>
               <button onClick={()=>setMode("view")} style={{padding:"9px 20px",background:"transparent",color:C.textMid,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",fontSize:14}}>Cancel</button>
-              <button onClick={submitPin} disabled={pinInput.length!==4} style={{padding:"9px 20px",background:pinInput.length===4?C.primary:"#ccc",color:pinInput.length===4?C.cream:"#888",border:"none",borderRadius:8,cursor:pinInput.length===4?"pointer":"not-allowed",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14}}>Confirm</button>
+              <button onClick={submitPin} disabled={pinInput.length!==4||pinBusy} style={{padding:"9px 20px",background:(pinInput.length===4&&!pinBusy)?C.primary:"#ccc",color:(pinInput.length===4&&!pinBusy)?C.cream:"#888",border:"none",borderRadius:8,cursor:(pinInput.length===4&&!pinBusy)?"pointer":"not-allowed",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14}}>{pinBusy?"Checking…":"Confirm"}</button>
             </div>
           </div>
         )}
@@ -848,7 +894,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
             <div style={{fontSize:14,color:C.textDark,fontWeight:600,marginBottom:20}}>{listing.displayName||listing.address}</div>
             <div style={{display:"flex",gap:10,justifyContent:"center"}}>
               <button onClick={()=>setMode("view")} style={{padding:"10px 24px",background:"transparent",color:C.textMid,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",fontSize:14}}>Cancel</button>
-              <button onClick={()=>onDelete(listing.id)} style={{padding:"10px 24px",background:C.cta,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14}}>Yes, Delete</button>
+              <button onClick={()=>onDelete(listing.id,verifiedPin)} style={{padding:"10px 24px",background:C.cta,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14}}>Yes, Delete</button>
             </div>
           </div>
         )}
@@ -864,7 +910,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
             {listing.displayName&&<div style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:20,color:C.primary,lineHeight:1.2,marginBottom:3}}>{holiday==="halloween"?"🎃":"🎄"} {listing.displayName}</div>}
             <div style={{fontFamily:"'Playfair Display',serif",fontWeight:listing.displayName?400:700,fontSize:listing.displayName?14:18,color:listing.displayName?C.textLight:C.primary,lineHeight:1.3,wordBreak:"break-word"}}>{listing.displayName?"📍 ":""}{listing.address}</div>
           </div>
-          <button onClick={()=>onToggleActive(listing.id)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:listing.active!==false?"#d8f0e0":"#f0e0d8",color:listing.active!==false?"#1a6a30":"#a04020"}}>
+          <button onClick={()=>{if(!listing.hasPin)return;if(verifiedPin){onToggleActive(listing.id,verifiedPin);}else{startPinCheck("toggle");}}} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:listing.active!==false?"#d8f0e0":"#f0e0d8",color:listing.active!==false?"#1a6a30":"#a04020"}}>
             {listing.active!==false?"✓ Active":"Off Season"}
           </button>
         </div>
@@ -941,7 +987,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
           </div>
         </div>
 
-        {listing.pin&&(
+        {listing.hasPin&&(
           <div style={{display:"flex",gap:10,marginTop:14,paddingTop:14,borderTop:`1px solid ${C.creamDark}`}}>
             <button onClick={()=>startPinCheck("edit")} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",background:"transparent",color:C.primary,border:`1.5px solid ${C.primaryMid}`,borderRadius:8,cursor:"pointer",fontSize:13,fontFamily:"'Playfair Display',serif",fontWeight:600}}>✏️ Edit Listing</button>
             <button onClick={()=>startPinCheck("delete")} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",background:"transparent",color:C.cta,border:`1.5px solid ${C.cta}`,borderRadius:8,cursor:"pointer",fontSize:13,fontFamily:"'Playfair Display',serif",fontWeight:600}}>🗑️ Delete Listing</button>
@@ -1427,9 +1473,10 @@ function App() {
       d.onDuplicate && d.onDuplicate(duplicate);
       return;
     }
-    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday]};
+    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,hasPin:!!d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday]};
     const dbId = await dbSaveListing(newListing);
     if (dbId) newListing.id = dbId;
+    delete newListing.pin;
     setListings(p=>[newListing,...p]);
     setShowForm(false);
   },[listings,holiday]);
@@ -1440,7 +1487,7 @@ function App() {
     const newRatings=[...listing.ratings,r];
     setListings(p=>p.map(l=>l.id===id?{...l,ratings:newRatings}:l));
     setSelected(p=>p?.id===id?{...p,ratings:newRatings}:p);
-    await dbUpdateListing(id,{ratings:newRatings});
+    await dbUpdateCommunity(id,{ratings:newRatings});
   },[listings]);
 
   const handleComment=useCallback(async(id,a,t)=>{
@@ -1449,16 +1496,19 @@ function App() {
     const newComments=[...listing.comments,{author:a,text:t,time:Date.now()}];
     setListings(p=>p.map(l=>l.id===id?{...l,comments:newComments}:l));
     setSelected(p=>p?.id===id?{...p,comments:newComments}:p);
-    await dbUpdateListing(id,{comments:newComments});
+    await dbUpdateCommunity(id,{comments:newComments});
   },[listings]);
 
-  const handleEdit=useCallback(async(id,changes)=>{
+  const handleEdit=useCallback(async(id,changes,pin)=>{
+    const ok = await dbUpdateOwner(id,pin,changes);
+    if(!ok){ alert("Could not save changes — please re-enter your PIN and try again."); return; }
     setListings(p=>p.map(l=>l.id===id?{...l,...changes}:l));
     setSelected(p=>p?.id===id?{...p,...changes}:p);
-    await dbUpdateListing(id,changes);
   },[listings]);
 
-  const handleDelete=useCallback(async(id)=>{
+  const handleDelete=useCallback(async(id,pin)=>{
+    const ok = await dbDeleteListing(id,pin);
+    if(!ok){ alert("Could not delete this listing — please re-enter your PIN and try again."); return; }
     const listing = listings.find(l=>l.id===id);
     if (listing) {
       const allPhotos = listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]);
@@ -1466,7 +1516,6 @@ function App() {
     }
     setListings(p=>p.filter(l=>l.id!==id));
     setSelected(null);
-    await dbDeleteListing(id);
   },[listings]);
 
   const handleVisit=useCallback(async(id)=>{
@@ -1475,16 +1524,17 @@ function App() {
     const newVisits=(listing.visits||0)+1;
     setListings(p=>p.map(l=>l.id===id?{...l,visits:newVisits}:l));
     setSelected(p=>p?.id===id?{...p,visits:newVisits}:p);
-    await dbUpdateListing(id,{visits:newVisits});
+    await dbUpdateCommunity(id,{visits:newVisits});
   },[listings]);
 
-  const handleToggleActive=useCallback(async(id)=>{
+  const handleToggleActive=useCallback(async(id,pin)=>{
     const listing = listings.find(l=>l.id===id);
     if(!listing) return;
     const newActive=listing.active===false?true:false;
+    const ok = await dbUpdateOwner(id,pin,{active:newActive});
+    if(!ok){ alert("Could not update this listing — please re-enter your PIN and try again."); return; }
     setListings(p=>p.map(l=>l.id===id?{...l,active:newActive}:l));
     setSelected(p=>p?.id===id?{...p,active:newActive}:p);
-    await dbUpdateListing(id,{active:newActive});
   },[listings]);
 
   const handleToggleFav=useCallback((id)=>{const updated=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];saveFavs(updated);},[favorites]);
