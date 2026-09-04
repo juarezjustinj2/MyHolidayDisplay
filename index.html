@@ -1239,7 +1239,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
               </div>
             </div>
 
-            {!isHood&&(
+            {isHood&&(
               <>
                 <div>
                   <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Neighborhood Name *</label>
