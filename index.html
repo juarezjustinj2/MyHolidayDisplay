@@ -188,6 +188,7 @@ async function dbUpdateOwner(id, pin, changes) {
   if (changes.lng         !== undefined) patch.lng          = changes.lng;
   if (changes.radiusMeters!== undefined) patch.radius_meters= changes.radiusMeters;
   if (changes.areaName    !== undefined) patch.area_name    = changes.areaName;
+  if (changes.entryNotes  !== undefined) patch.entry_notes  = changes.entryNotes;
   return await sbRpc("update_listing_owner",
     {p_id: Number(id), p_pin: String(pin||""), p_patch: patch});
 }
@@ -757,6 +758,7 @@ function ListingCard({listing, onSelect, dist, isFav, onToggleFav, C, holiday}) 
         {listing.displayName&&<div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14,color:C.textDark,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:1}}>{holiday==="halloween"?"🎃":"🎄"} {listing.displayName}</div>}
         <div style={{fontFamily:"'Playfair Display',serif",fontWeight:listing.displayName?400:700,fontSize:listing.displayName?12:14,color:listing.displayName?C.textLight:C.textDark,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{listing.displayName?"📍 ":""}{listing.address}</div>
         {listing.listingType==="neighborhood"&&<div style={{display:"inline-block",fontSize:10,fontWeight:700,color:C.primary,background:`${C.primary}14`,border:`1px solid ${C.primary}33`,padding:"2px 8px",borderRadius:20,marginBottom:5}}>🏘️ Neighborhood{listing.scale?" · "+scaleLabel(listing.scale):""}</div>}
+        {listing.listingType==="neighborhood"&&listing.entryNotes&&<div style={{fontSize:11,color:C.textLight,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {listing.entryNotes}</div>}
         {listing.hours&&<div style={{fontSize:11,color:C.primaryMid,marginBottom:4,fontWeight:600}}>🕐 {listing.hours}</div>}
         {tags.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:5}}>{tags.slice(0,3).map(t=><span key={t.id} style={{fontSize:10,background:`${C.primary}12`,color:C.primaryMid,padding:"3px 8px",borderRadius:20,border:`1px solid ${C.primary}22`,fontWeight:600,letterSpacing:".01em"}}>{t.icon} {t.label}</span>)}</div>}
         <Stars value={Math.round(avg)} size="sm" accent={C.accent} border={C.border}/>
@@ -771,7 +773,7 @@ function ListingCard({listing, onSelect, dist, isFav, onToggleFav, C, holiday}) 
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, onToggleActive, isFav, onToggleFav, C, holiday}) {
+function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, onToggleActive, isFav, onToggleFav, C, holiday, allListings=[]}) {
   const [rating,setRating]=useState(0);
   const [comment,setComment]=useState("");
   const [author,setAuthor]=useState("");
@@ -794,6 +796,16 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [editZip,setEditZip]=useState(addrParts[3]||"");
   const isHoodListing = listing.listingType==="neighborhood";
   const [editRadius,setEditRadius]=useState(listing.radiusMeters||DEFAULT_RADIUS_M);
+  const [editEntryNotes,setEditEntryNotes]=useState(listing.entryNotes||"");
+  // Counted by geography rather than parent_id, so houses listed before the
+  // neighborhood existed are included too.
+  const housesInside = isHoodListing
+    ? allListings.filter(l =>
+        l.listingType!=="neighborhood" && l.lat!=null &&
+        (l.holidays||["christmas"]).includes(holiday) &&
+        metersBetween(listing, l) <= (listing.radiusMeters||DEFAULT_RADIUS_M)
+      ).length
+    : 0;
   const [editDisplayName,setEditDisplayName]=useState(listing.displayName||"");
   const [editDescription,setEditDescription]=useState(listing.description||"");
   const [editHours,setEditHours]=useState(listing.hours||"");
@@ -843,7 +855,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
     await deleteRemovedPhotos(oldPhotos, editPhotos);
     const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
     const changes={displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos};
-    if(isHoodListing){ changes.radiusMeters=editRadius; changes.areaName=editDisplayName.trim(); }
+    if(isHoodListing){ changes.radiusMeters=editRadius; changes.areaName=editDisplayName.trim(); changes.entryNotes=editEntryNotes.trim(); }
     else { changes.address=fullEditAddress; }
     onEdit(listing.id,changes,verifiedPin);
     setMode("view");
@@ -911,6 +923,8 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
                   <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Size Of The Area</label>
                   <input type="range" min={150} max={3000} step={50} value={editRadius} onChange={e=>setEditRadius(Number(e.target.value))} style={{width:"100%",accentColor:C.primary}}/>
                   <div style={{fontSize:12,color:C.textMid,marginTop:2}}>About {Math.round(editRadius*3.28084).toLocaleString()} ft across the radius ({(editRadius*0.000621371).toFixed(2)} mi)</div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",margin:"14px 0 6px"}}>Where To Start / Parking</label>
+                  <input value={editEntryNotes} onChange={e=>setEditEntryNotes(e.target.value)} placeholder="e.g. Enter from Whitewood, park on the cul-de-sac" style={field}/>
                 </div>
               ):(
               <div>
@@ -998,6 +1012,15 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
         {listing.hours&&<div style={{display:"inline-flex",alignItems:"center",gap:6,marginBottom:10,padding:"6px 12px",background:C.white,borderRadius:8,border:`1px solid ${C.border}`}}><span>🕐</span><span style={{fontSize:13,color:C.primaryMid,fontWeight:600}}>{listing.hours}</span></div>}
 
         {tags.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>{tags.map(t=><span key={t.id} style={{fontSize:12,background:C.white,color:C.textMid,padding:"3px 9px",borderRadius:12,border:`1px solid ${C.border}`}}>{t.icon} {t.label}</span>)}</div>}
+
+        {isHoodListing&&(
+          <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:7}}>🏘️ Neighborhood</div>
+            <div style={{fontSize:13,color:C.textDark,marginBottom:6}}>{scaleLabel(listing.scale)||"Lights across the area"} · about {((listing.radiusMeters||DEFAULT_RADIUS_M)*0.000621371).toFixed(2)} mi radius</div>
+            {housesInside>0&&<div style={{fontSize:13,color:C.primaryMid,fontWeight:600,marginBottom:listing.entryNotes?6:0}}>🏠 {housesInside} listed {housesInside===1?"house":"houses"} inside this area</div>}
+            {listing.entryNotes&&<div style={{fontSize:13,color:C.textDark,lineHeight:1.6,paddingTop:6,borderTop:`1px solid ${C.border}`}}><span style={{fontWeight:600}}>Where to start:</span> {listing.entryNotes}</div>}
+          </div>
+        )}
 
         <div style={{fontSize:12,color:C.textLight,marginBottom:listing.description?10:14}}>Added by {listing.submitter} · {new Date(listing.createdAt).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
 
@@ -2012,7 +2035,7 @@ function App() {
         </button>
       </nav>
 
-      {selected&&<Modal listing={selected} onClose={()=>setSelected(null)} onRate={handleRate} onComment={handleComment} onEdit={handleEdit} onDelete={handleDelete} onVisit={handleVisit} onToggleActive={handleToggleActive} isFav={favorites.includes(selected.id)} onToggleFav={handleToggleFav} C={C} holiday={holiday}/>}
+      {selected&&<Modal listing={selected} onClose={()=>setSelected(null)} onRate={handleRate} onComment={handleComment} onEdit={handleEdit} onDelete={handleDelete} onVisit={handleVisit} onToggleActive={handleToggleActive} isFav={favorites.includes(selected.id)} onToggleFav={handleToggleFav} C={C} holiday={holiday} allListings={listings}/>}
       {showForm&&<SubmitForm onSubmit={handleSubmit} onClose={()=>setShowForm(false)} C={C} holiday={holiday} listings={listings}/>}
     </div>
   );
