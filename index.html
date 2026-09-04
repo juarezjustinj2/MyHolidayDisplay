@@ -26,7 +26,8 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 // Columns the browser is allowed to read. "pin" is deliberately absent --
 // it is revoked from the anon role in Postgres and never leaves the server.
 const LISTING_COLS = "id,display_name,address,lat,lng,photo,photos,video,ratings,"
-  + "comments,submitter,created_at,tags,hours,active,visits,description,holidays,has_pin";
+  + "comments,submitter,created_at,tags,hours,active,visits,description,holidays,has_pin,"
+  + "listing_type,area_name,radius_meters,entry_notes,scale,parent_id";
 
 // ─── Supabase helpers ────────────────────────────────────────────────────────
 const sbFetch = (path, opts={}) => fetch(SUPABASE_URL+path, {
@@ -114,6 +115,12 @@ async function dbGetListings() {
       description: row.description||"",
       holidays: row.holidays||["christmas"],
       hasPin: row.has_pin===true,
+      listingType: row.listing_type||"house",
+      areaName: row.area_name||"",
+      radiusMeters: row.radius_meters||null,
+      entryNotes: row.entry_notes||"",
+      scale: row.scale||"",
+      parentId: row.parent_id!=null?String(row.parent_id):null,
     }));
   } catch(e) { return null; }
 }
@@ -137,6 +144,12 @@ async function dbSaveListing(listing) {
         description: listing.description,
         holidays: listing.holidays||["christmas"],
         pin: listing.pin,
+        listing_type: listing.listingType||"house",
+        area_name: listing.areaName||null,
+        radius_meters: listing.radiusMeters||null,
+        entry_notes: listing.entryNotes||null,
+        scale: listing.scale||null,
+        parent_id: listing.parentId||null,
       })
     });
     if (!r.ok) return null;
@@ -307,6 +320,37 @@ function findDuplicateListing(listings, newAddress) {
 }
 
 function getDistanceMiles(la1,lo1,la2,lo2){const R=3958.8,dL=(la2-la1)*Math.PI/180,dG=(lo2-lo1)*Math.PI/180,a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dG/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+
+// ─── Neighborhood helpers ────────────────────────────────────────────────────
+const SCALE_OPTIONS = [
+  {id:"a_few",          label:"A few standout houses"},
+  {id:"most_of_street", label:"Most of the street"},
+  {id:"whole_tract",    label:"The whole tract goes all out"},
+];
+const scaleLabel = id => (SCALE_OPTIONS.find(s=>s.id===id)||{}).label||"";
+const DEFAULT_RADIUS_M = 500;
+
+function metersBetween(a, b) {
+  return getDistanceMiles(a.lat, a.lng, b.lat, b.lng) * 1609.34;
+}
+
+// A neighborhood is a duplicate if its center lands inside an existing one,
+// or if an existing center lands inside the one being added.
+function findOverlappingNeighborhood(listings, center, radiusMeters) {
+  return listings.find(l => {
+    if (l.listingType !== "neighborhood" || l.lat == null) return false;
+    const d = metersBetween(l, center);
+    return d < (l.radiusMeters || DEFAULT_RADIUS_M) || d < (radiusMeters || DEFAULT_RADIUS_M);
+  });
+}
+
+// Which neighborhood, if any, contains this house?
+function findEnclosingNeighborhood(listings, point) {
+  return listings.find(l =>
+    l.listingType === "neighborhood" && l.lat != null &&
+    metersBetween(l, point) <= (l.radiusMeters || DEFAULT_RADIUS_M)
+  );
+}
 function avgRating(l){return l.ratings.length?l.ratings.reduce((a,b)=>a+b,0)/l.ratings.length:0;}
 
 function loadGoogleMaps() {
@@ -543,7 +587,7 @@ function SearchPanel({onSearch, onClear, activeSearch, activeTags, onTagToggle, 
 
 // ─── Maps ────────────────────────────────────────────────────────────────────
 function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C, holiday="christmas"}) {
-  const ref = useRef(null), mapRef = useRef(null), markersRef = useRef([]), circleRef = useRef(null), iwRef = useRef(null);
+  const ref = useRef(null), mapRef = useRef(null), markersRef = useRef([]), circleRef = useRef(null), iwRef = useRef(null), hoodsRef = useRef([]);
   useEffect(()=>{
     if (!ref.current||!window.google||!window.google.maps) return;
     const G=window.google;
@@ -567,15 +611,27 @@ function GoogleMapView({listings, onSelect, searchCenter, searchMiles, C, holida
     if (iwRef.current) iwRef.current.close();
     iwRef.current=new G.maps.InfoWindow();
     markersRef.current.forEach(m=>m.setMap(null)); markersRef.current=[];
+    hoodsRef.current.forEach(c=>c.setMap(null)); hoodsRef.current=[];
+    listings.filter(l=>l.listingType==="neighborhood"&&l.lat!=null).forEach(hood=>{
+      const c=new G.maps.Circle({
+        map:mapRef.current,center:{lat:hood.lat,lng:hood.lng},radius:hood.radiusMeters||DEFAULT_RADIUS_M,
+        fillColor:C.primary,fillOpacity:.12,strokeColor:C.primary,strokeWeight:2,strokeOpacity:.75,clickable:false,
+      });
+      hoodsRef.current.push(c);
+    });
     listings.forEach(listing=>{
       const avg=avgRating(listing);
+      const isHood=listing.listingType==="neighborhood";
+      const label=listing.displayName||listing.areaName||listing.address;
       const marker=new G.maps.Marker({
-        position:{lat:listing.lat,lng:listing.lng},map:mapRef.current,title:listing.address,
-        icon:{path:"M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z",fillColor:C.cta,fillOpacity:1,strokeColor:"#7a100a",strokeWeight:1.5,scale:1.7,anchor:new G.maps.Point(12,22)},
+        position:{lat:listing.lat,lng:listing.lng},map:mapRef.current,title:label,
+        icon:isHood
+          ?{path:G.maps.SymbolPath.CIRCLE,fillColor:C.primary,fillOpacity:1,strokeColor:"#fff",strokeWeight:2.5,scale:9}
+          :{path:"M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z",fillColor:C.cta,fillOpacity:1,strokeColor:"#7a100a",strokeWeight:1.5,scale:1.7,anchor:new G.maps.Point(12,22)},
         animation:G.maps.Animation.DROP,
       });
       marker.addListener("click",()=>{
-        iwRef.current.setContent(`<div style="font-family:'Georgia',serif;padding:14px;min-width:200px;"><div style="font-size:13px;font-weight:700;color:${C.primary};margin-bottom:6px">${holiday==="halloween"?"🎃":"🎄"} ${listing.address}</div><div style="color:${C.textMid};font-size:12px;margin-bottom:10px">★ ${avg?avg.toFixed(1):"New"} · ${listing.ratings.length} rating${listing.ratings.length!==1?"s":""}</div><button id="iw-btn" style="background:${C.primary};color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;width:100%">View Details →</button></div>`);
+        iwRef.current.setContent(`<div style="font-family:'Georgia',serif;padding:14px;min-width:200px;"><div style="font-size:13px;font-weight:700;color:${C.primary};margin-bottom:6px">${isHood?"🏘️":(holiday==="halloween"?"🎃":"🎄")} ${label}</div>${isHood?`<div style="color:${C.textMid};font-size:11px;margin-bottom:6px">Neighborhood${listing.scale?" · "+scaleLabel(listing.scale):""}</div>`:""}<div style="color:${C.textMid};font-size:12px;margin-bottom:10px">★ ${avg?avg.toFixed(1):"New"} · ${listing.ratings.length} rating${listing.ratings.length!==1?"s":""}</div><button id="iw-btn" style="background:${C.primary};color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;width:100%">View Details →</button></div>`);
         iwRef.current.open(mapRef.current,marker);
         G.maps.event.addListenerOnce(iwRef.current,"domready",()=>{
           const btn=document.getElementById("iw-btn");
@@ -607,9 +663,15 @@ function LeafletMapView({listings, onSelect, searchCenter, searchMiles, C, holid
     L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{attribution:"© OpenStreetMap © CARTO",maxZoom:19}).addTo(map);
     if (searchCenter&&searchMiles) L.circle([searchCenter.lat,searchCenter.lng],{radius:searchMiles*1609.34,color:C.primary,fillColor:C.primary,fillOpacity:.07,weight:1.5,opacity:.35}).addTo(map);
     const icon=L.divIcon({className:"",html:`<div style="width:28px;height:28px;background:${C.cta};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #7a100a;box-shadow:0 2px 8px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);font-size:12px">${holiday==="halloween"?"🎃":"🎄"}</span></div>`,iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-30]});
+    const hoodIcon=L.divIcon({className:"",html:`<div style="width:26px;height:26px;background:${C.primary};border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center"><span style="font-size:12px">🏘️</span></div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-16]});
+    listings.filter(l=>l.listingType==="neighborhood"&&l.lat!=null).forEach(hood=>{
+      L.circle([hood.lat,hood.lng],{radius:hood.radiusMeters||DEFAULT_RADIUS_M,color:C.primary,fillColor:C.primary,fillOpacity:.12,weight:2,opacity:.75,interactive:false}).addTo(map);
+    });
     listings.forEach(listing=>{
       const avg=avgRating(listing);
-      L.marker([listing.lat,listing.lng],{icon}).addTo(map).bindPopup(`<div style="font-family:Georgia,serif;padding:12px;min-width:185px;"><div style="font-size:13px;font-weight:700;color:${C.primary};margin-bottom:5px">${holiday==="halloween"?"🎃":"🎄"} ${listing.address}</div><div style="color:${C.textMid};font-size:12px;margin-bottom:9px">★ ${avg?avg.toFixed(1):"New"} · ${listing.ratings.length} rating${listing.ratings.length!==1?"s":""}</div><button onclick="window.__sel('${listing.id}')" style="background:${C.primary};color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;width:100%">View Details →</button></div>`,{className:"cl-popup"});
+      const isHood=listing.listingType==="neighborhood";
+      const label=listing.displayName||listing.areaName||listing.address;
+      L.marker([listing.lat,listing.lng],{icon:isHood?hoodIcon:icon}).addTo(map).bindPopup(`<div style="font-family:Georgia,serif;padding:12px;min-width:185px;"><div style="font-size:13px;font-weight:700;color:${C.primary};margin-bottom:5px">${isHood?"🏘️":(holiday==="halloween"?"🎃":"🎄")} ${label}</div>${isHood?`<div style="color:${C.textMid};font-size:11px;margin-bottom:5px">Neighborhood${listing.scale?" · "+scaleLabel(listing.scale):""}</div>`:""}<div style="color:${C.textMid};font-size:12px;margin-bottom:9px">★ ${avg?avg.toFixed(1):"New"} · ${listing.ratings.length} rating${listing.ratings.length!==1?"s":""}</div><button onclick="window.__sel('${listing.id}')" style="background:${C.primary};color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;width:100%">View Details →</button></div>`,{className:"cl-popup"});
     });
     if (!document.getElementById("lf-sty")){const s=document.createElement("style");s.id="lf-sty";s.textContent=`.cl-popup .leaflet-popup-content-wrapper{background:#fff;border:1px solid ${C.border};border-radius:10px;padding:0;box-shadow:0 4px 20px rgba(0,0,0,.12)}.cl-popup .leaflet-popup-content{margin:0}.cl-popup .leaflet-popup-tip{background:#fff}.cl-popup .leaflet-popup-close-button{color:${C.textLight}!important;font-size:16px!important;top:6px!important;right:8px!important}`;document.head.appendChild(s);}
     return ()=>{if (mapRef.current){mapRef.current.remove();mapRef.current=null;}};
@@ -692,6 +754,7 @@ function ListingCard({listing, onSelect, dist, isFav, onToggleFav, C, holiday}) 
       <div style={{flex:1,minWidth:0,paddingRight:52}}>
         {listing.displayName&&<div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14,color:C.textDark,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:1}}>{holiday==="halloween"?"🎃":"🎄"} {listing.displayName}</div>}
         <div style={{fontFamily:"'Playfair Display',serif",fontWeight:listing.displayName?400:700,fontSize:listing.displayName?12:14,color:listing.displayName?C.textLight:C.textDark,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{listing.displayName?"📍 ":""}{listing.address}</div>
+        {listing.listingType==="neighborhood"&&<div style={{display:"inline-block",fontSize:10,fontWeight:700,color:C.primary,background:`${C.primary}14`,border:`1px solid ${C.primary}33`,padding:"2px 8px",borderRadius:20,marginBottom:5}}>🏘️ Neighborhood{listing.scale?" · "+scaleLabel(listing.scale):""}</div>}
         {listing.hours&&<div style={{fontSize:11,color:C.primaryMid,marginBottom:4,fontWeight:600}}>🕐 {listing.hours}</div>}
         {tags.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:5}}>{tags.slice(0,3).map(t=><span key={t.id} style={{fontSize:10,background:`${C.primary}12`,color:C.primaryMid,padding:"3px 8px",borderRadius:20,border:`1px solid ${C.primary}22`,fontWeight:600,letterSpacing:".01em"}}>{t.icon} {t.label}</span>)}</div>}
         <Stars value={Math.round(avg)} size="sm" accent={C.accent} border={C.border}/>
@@ -1002,6 +1065,13 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
 // ─── Submit Form (2-Step) ─────────────────────────────────────────────────────
 function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
   const [step,setStep]=useState(1);
+  const [listingType,setListingType]=useState("house");
+  const [areaName,setAreaName]=useState("");
+  const [centerHint,setCenterHint]=useState("");
+  const [radiusMeters,setRadiusMeters]=useState(DEFAULT_RADIUS_M);
+  const [scale,setScale]=useState("most_of_street");
+  const [entryNotes,setEntryNotes]=useState("");
+  const isHood = listingType==="neighborhood";
   const [address,setAddress]=useState("");
   const [city,setCity]=useState("");
   const [stateVal,setStateVal]=useState("");
@@ -1061,7 +1131,9 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
   function toggleTag(id){setTags(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
 
   async function handleSubmit(){
-    if (!address.trim()||pin.length!==4) return;
+    if (pin.length!==4) return;
+    if (isHood) return handleSubmitNeighborhood();
+    if (!address.trim()) return;
     setLoading(true); setNotice("");
     const fullAddress=[address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", ");
     let coords=await geocodeAddress(fullAddress);
@@ -1079,13 +1151,52 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
     const uploadedPhotos = await uploadPhotosToStorage(photos);
     const mainPhoto = uploadedPhotos[0]||null;
     onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:mainPhoto,photos:uploadedPhotos,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0,
-      onDuplicate:(existing)=>{setLoading(false);setDuplicateWarning(existing);}
+      onDuplicate:(existing)=>{setLoading(false);setDuplicateWarning(existing);setStep(1);}
+    });
+    setLoading(false);
+  }
+
+  async function handleSubmitNeighborhood(){
+    if (!areaName.trim()) return;
+    setLoading(true); setNotice("");
+    const areaLine=[city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", ");
+    // Try the cross-streets hint first, then the city/state/zip, then the bare ZIP.
+    let coords=null;
+    if (centerHint.trim()) coords=await geocodeAddress([centerHint.trim(),areaLine].filter(Boolean).join(", "));
+    if (!coords&&areaLine) coords=await geocodeAddress(areaLine);
+    if (!coords&&zip.trim()) coords=await geocodeAddress(zip.trim()+", USA");
+    if (!coords){
+      setLoading(false);
+      setNotice("⚠️ Could not locate that area. Please check the city, state and ZIP and try again.");
+      return;
+    }
+    const uploadedPhotos = await uploadPhotosToStorage(photos);
+    onSubmit({
+      listingType:"neighborhood",
+      areaName:areaName.trim(),
+      radiusMeters,
+      scale,
+      entryNotes:entryNotes.trim(),
+      address:areaLine,
+      displayName:areaName.trim(),
+      submitter:submitter.trim()||"Anonymous",
+      description:description.trim(),
+      hours:hours.trim(),
+      tags,
+      photo:uploadedPhotos[0]||null,
+      photos:uploadedPhotos,
+      video,
+      lat:coords.lat, lng:coords.lng,
+      pin, active:true, visits:0,
+      onDuplicate:(existing)=>{setLoading(false);setDuplicateWarning(existing);setStep(1);}
     });
     setLoading(false);
   }
 
   const field={padding:"12px 14px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:16,color:C.textDark,background:C.cream,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
-  const step1Ok = address.trim().length > 0;
+  const step1Ok = isHood
+    ? (areaName.trim().length>0 && city.trim().length>0 && zip.trim().length===5)
+    : address.trim().length > 0;
   const step2Ok = pin.length===4 && confirmPin===pin;
 
   return (
@@ -1112,6 +1223,66 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
         {/* ── STEP 1 ── */}
         {step===1&&(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {/* Listing type toggle */}
+            <div>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>What are you adding?</label>
+              <div style={{display:"flex",gap:8}}>
+                {[{id:"house",icon:"🏠",label:"One house"},{id:"neighborhood",icon:"🏘️",label:"A whole neighborhood"}].map(o=>{
+                  const on=listingType===o.id;
+                  return (
+                    <button key={o.id} type="button" onClick={()=>{setListingType(o.id);setDuplicateWarning(null);setNotice("");}}
+                      style={{flex:1,padding:"12px 8px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${on?C.primary:C.border}`,background:on?`${C.primary}12`:"transparent",color:on?C.primary:C.textMid,fontWeight:on?700:400,fontSize:13,lineHeight:1.35,transition:"all .15s"}}>
+                      <div style={{fontSize:20,marginBottom:3}}>{o.icon}</div>{o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!isHood&&(
+              <>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Neighborhood Name *</label>
+                  <input value={areaName} onChange={e=>setAreaName(e.target.value)} placeholder="e.g. Sycamore Ranch, Candy Cane Lane" style={field}/>
+                  <div style={{fontSize:11,color:C.textLight,marginTop:4}}>What locals call it, or the tract name.</div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>City / State / ZIP *</label>
+                  <div style={{display:"flex",gap:8}}>
+                    <input value={city} onChange={e=>setCity(e.target.value)} placeholder="City" style={{...field,flex:2}}/>
+                    <input value={stateVal} onChange={e=>setStateVal(e.target.value.slice(0,2).toUpperCase())} placeholder="ST" maxLength={2} style={{...field,flex:1,textTransform:"uppercase"}}/>
+                    <input value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="ZIP" maxLength={5} style={{...field,flex:1}} inputMode="numeric"/>
+                  </div>
+                  <div style={{fontSize:11,color:C.textLight,marginTop:4}}>No street address — neighborhoods are listed by area only.</div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Cross Streets (optional)</label>
+                  <input value={centerHint} onChange={e=>setCenterHint(e.target.value)} placeholder="e.g. Sycamore Rd & Clinton Keith Rd" style={field}/>
+                  <div style={{fontSize:11,color:C.textLight,marginTop:4}}>Helps center the map on the right spot.</div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>How Big Is The Area?</label>
+                  <input type="range" min={150} max={3000} step={50} value={radiusMeters} onChange={e=>setRadiusMeters(Number(e.target.value))} style={{width:"100%",accentColor:C.primary}}/>
+                  <div style={{fontSize:12,color:C.textMid,marginTop:2}}>About {Math.round(radiusMeters*3.28084).toLocaleString()} ft across the radius ({(radiusMeters*0.000621371).toFixed(2)} mi)</div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>How Much Goes Up?</label>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {SCALE_OPTIONS.map(s=>{
+                      const on=scale===s.id;
+                      return <button key={s.id} type="button" onClick={()=>setScale(s.id)} style={{textAlign:"left",padding:"10px 14px",borderRadius:8,cursor:"pointer",fontSize:13,border:`1px solid ${on?C.primary:C.border}`,background:on?`${C.primary}12`:"transparent",color:on?C.primary:C.textMid,fontWeight:on?600:400}}>{on?"● ":"○ "}{s.label}</button>;
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Where To Start / Parking (optional)</label>
+                  <input value={entryNotes} onChange={e=>setEntryNotes(e.target.value)} placeholder="e.g. Enter from Whitewood, park on the cul-de-sac" style={field}/>
+                </div>
+                {notice&&<div style={{fontSize:12,color:notice.startsWith("⚠️")?C.cta:C.primaryMid,background:notice.startsWith("⚠️")?"#fff0ee":"#e8f5ee",borderRadius:6,padding:"5px 10px"}}>{notice}</div>}
+              </>
+            )}
+
+            {isHood?null:<>
             <div>
               <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Display Name (optional)</label>
               <input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="e.g. The Johnson Family Winter Wonderland" style={field}/>
@@ -1127,17 +1298,20 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
               </div>
               {notice&&<div style={{marginTop:6,fontSize:12,color:notice.startsWith("⚠️")?C.cta:C.primaryMid,background:notice.startsWith("⚠️")?"#fff0ee":"#e8f5ee",borderRadius:6,padding:"5px 10px"}}>{notice}</div>}
             </div>
+            </>}
             {duplicateWarning&&(
               <div style={{background:"#fff8e8",border:"1.5px solid #f0c040",borderRadius:12,padding:"12px 16px",marginTop:4}}>
-                <div style={{fontWeight:700,fontSize:13,color:"#8a6000",marginBottom:4}}>⚠️ This address is already listed!</div>
-                <div style={{fontSize:12,color:"#8a6000",marginBottom:8}}>"{duplicateWarning.displayName||duplicateWarning.address}" already exists on MyHolidayDisplay.</div>
-                <button onClick={()=>setDuplicateWarning(null)} style={{width:"100%",padding:"8px",borderRadius:8,border:"1px solid #f0c040",background:"transparent",color:"#8a6000",fontSize:12,cursor:"pointer",fontWeight:600}}>← Try a Different Address</button>
+                <div style={{fontWeight:700,fontSize:13,color:"#8a6000",marginBottom:4}}>⚠️ {isHood?"This area is already covered!":"This address is already listed!"}</div>
+                <div style={{fontSize:12,color:"#8a6000",marginBottom:8}}>"{duplicateWarning.displayName||duplicateWarning.areaName||duplicateWarning.address}" already exists on MyHolidayDisplay{isHood?" and overlaps this spot":""}.</div>
+                <button onClick={()=>setDuplicateWarning(null)} style={{width:"100%",padding:"8px",borderRadius:8,border:"1px solid #f0c040",background:"transparent",color:"#8a6000",fontSize:12,cursor:"pointer",fontWeight:600}}>← {isHood?"Try a Different Area":"Try a Different Address"}</button>
               </div>
             )}
             {!duplicateWarning&&<button onClick={()=>{
               if(!step1Ok) return;
-              const dup = findDuplicateListing(listings.filter(l=>(l.holidays||[]).includes(holiday)), [address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", "));
-              if(dup){setDuplicateWarning(dup);return;}
+              if(!isHood){
+                const dup = findDuplicateListing(listings.filter(l=>(l.holidays||[]).includes(holiday)&&l.listingType!=="neighborhood"), [address.trim(),city.trim(),stateVal.trim(),zip.trim()].filter(Boolean).join(", "));
+                if(dup){setDuplicateWarning(dup);return;}
+              }
               setStep(2);
             }} disabled={!step1Ok} style={{padding:"13px",borderRadius:10,border:"none",fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:16,cursor:step1Ok?"pointer":"not-allowed",background:step1Ok?C.primary:"#ccc",color:step1Ok?C.cream:"#888",marginTop:4}}>
               Continue → Details
@@ -1467,13 +1641,22 @@ function App() {
   function saveFavs(updated){setFavorites(updated);try{localStorage.setItem(STORAGE_KEY+"-favs",JSON.stringify(updated));}catch(e){}}
 
   const handleSubmit=useCallback(async d=>{
-    // Check for duplicate address + zip
-    const duplicate = findDuplicateListing(listings.filter(l=>(l.holidays||[]).includes(holiday)), d.address);
-    if (duplicate) {
-      d.onDuplicate && d.onDuplicate(duplicate);
-      return;
+    const sameHoliday = listings.filter(l=>(l.holidays||[]).includes(holiday));
+    const isHood = d.listingType==="neighborhood";
+    let parentId = null;
+    if (isHood) {
+      // Neighborhoods collide by geography, not by address string.
+      const overlap = findOverlappingNeighborhood(sameHoliday, {lat:d.lat,lng:d.lng}, d.radiusMeters);
+      if (overlap) { d.onDuplicate && d.onDuplicate(overlap); return; }
+    } else {
+      const duplicate = findDuplicateListing(sameHoliday.filter(l=>l.listingType!=="neighborhood"), d.address);
+      if (duplicate) { d.onDuplicate && d.onDuplicate(duplicate); return; }
+      // If this house sits inside a listed neighborhood, link it.
+      const enclosing = findEnclosingNeighborhood(sameHoliday, {lat:d.lat,lng:d.lng});
+      if (enclosing) parentId = enclosing.id;
     }
-    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,hasPin:!!d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday]};
+    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,hasPin:!!d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday],
+      listingType:d.listingType||"house",areaName:d.areaName||"",radiusMeters:d.radiusMeters||null,entryNotes:d.entryNotes||"",scale:d.scale||"",parentId};
     const dbId = await dbSaveListing(newListing);
     if (dbId) newListing.id = dbId;
     delete newListing.pin;
