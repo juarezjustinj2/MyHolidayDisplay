@@ -186,6 +186,8 @@ async function dbUpdateOwner(id, pin, changes) {
   if (changes.active      !== undefined) patch.active       = changes.active;
   if (changes.lat         !== undefined) patch.lat          = changes.lat;
   if (changes.lng         !== undefined) patch.lng          = changes.lng;
+  if (changes.radiusMeters!== undefined) patch.radius_meters= changes.radiusMeters;
+  if (changes.areaName    !== undefined) patch.area_name    = changes.areaName;
   return await sbRpc("update_listing_owner",
     {p_id: Number(id), p_pin: String(pin||""), p_patch: patch});
 }
@@ -790,6 +792,8 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [editCity,setEditCity]=useState(addrParts[1]||"");
   const [editStateVal,setEditStateVal]=useState(addrParts[2]||"");
   const [editZip,setEditZip]=useState(addrParts[3]||"");
+  const isHoodListing = listing.listingType==="neighborhood";
+  const [editRadius,setEditRadius]=useState(listing.radiusMeters||DEFAULT_RADIUS_M);
   const [editDisplayName,setEditDisplayName]=useState(listing.displayName||"");
   const [editDescription,setEditDescription]=useState(listing.description||"");
   const [editHours,setEditHours]=useState(listing.hours||"");
@@ -834,11 +838,14 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   function removeEditPhoto(i){setEditPhotos(p=>p.filter((_,idx)=>idx!==i));}
   async function submitEdit(){
     const fullEditAddress=[editStreet.trim(),editCity.trim(),editStateVal.trim(),editZip.trim()].filter(Boolean).join(", ");
-    if(!fullEditAddress.trim())return;
+    if(!isHoodListing&&!fullEditAddress.trim())return;
     const oldPhotos = listing.photos&&listing.photos.length>0?listing.photos:(listing.photo?[listing.photo]:[]);
     await deleteRemovedPhotos(oldPhotos, editPhotos);
     const uploadedPhotos = await uploadPhotosToStorage(editPhotos);
-    onEdit(listing.id,{address:fullEditAddress,displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos},verifiedPin);
+    const changes={displayName:editDisplayName.trim(),description:editDescription.trim(),hours:editHours.trim(),tags:editTags,photo:uploadedPhotos[0]||null,photos:uploadedPhotos};
+    if(isHoodListing){ changes.radiusMeters=editRadius; changes.areaName=editDisplayName.trim(); }
+    else { changes.address=fullEditAddress; }
+    onEdit(listing.id,changes,verifiedPin);
     setMode("view");
   }
 
@@ -897,6 +904,15 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Display Name</label>
                 <input value={editDisplayName} onChange={e=>setEditDisplayName(e.target.value)} placeholder="e.g. The Johnson Family Winter Wonderland" autoComplete="off" style={field}/>
               </div>
+              {isHoodListing?(
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Area</label>
+                  <div style={{fontSize:14,color:C.textMid,background:C.creamDark,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",marginBottom:12}}>{listing.address}</div>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Size Of The Area</label>
+                  <input type="range" min={150} max={3000} step={50} value={editRadius} onChange={e=>setEditRadius(Number(e.target.value))} style={{width:"100%",accentColor:C.primary}}/>
+                  <div style={{fontSize:12,color:C.textMid,marginTop:2}}>About {Math.round(editRadius*3.28084).toLocaleString()} ft across the radius ({(editRadius*0.000621371).toFixed(2)} mi)</div>
+                </div>
+              ):(
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Address</label>
                 <input value={editStreet} onChange={e=>setEditStreet(e.target.value)} placeholder="Street address" autoComplete="off" data-lpignore="true" style={{...field,marginBottom:8}}/>
@@ -906,6 +922,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
                   <input value={editZip} onChange={e=>setEditZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="ZIP" maxLength={5} autoComplete="off" data-lpignore="true" inputMode="numeric" style={{...field,flex:1}}/>
                 </div>
               </div>
+              )}
               <div>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours</label>
                 <input value={editHours} onChange={e=>setEditHours(e.target.value)} placeholder="e.g. 5pm – 11pm nightly" style={field}/>
