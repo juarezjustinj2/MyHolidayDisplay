@@ -299,6 +299,14 @@ const TAGS = {
 
 const SAMPLE_DATA = [];
 
+// Which theme to open on, by date. Halloween runs mid-September through
+// October 31; Christmas covers the rest of the year.
+function seasonalHoliday(d=new Date()){
+  const mo=d.getMonth()+1, day=d.getDate();
+  if ((mo===9 && day>=15) || mo===10) return "halloween";
+  return "christmas";
+}
+
 function getC(holiday) { return HOLIDAYS[holiday].colors; }
 
 function normalizeAddress(addr) {
@@ -1647,10 +1655,7 @@ function RouteGenerator({listings, C, holiday}) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
-  const [holiday,setHoliday]=useState(()=>{
-    const mo=new Date().getMonth();
-    return mo===9?"halloween":"christmas"; // auto-detect October
-  });
+  const [holiday,setHoliday]=useState(()=>seasonalHoliday());
   const H = HOLIDAYS[holiday];
   const C = H.colors;
 
