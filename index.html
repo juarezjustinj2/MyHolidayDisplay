@@ -147,6 +147,7 @@ async function dbSaveListing(listing) {
         description: listing.description,
         holidays: listing.holidays||["christmas"],
         pin: listing.pin,
+        email: listing.email || null,
         listing_type: listing.listingType||"house",
         area_name: listing.areaName||null,
         radius_meters: listing.radiusMeters||null,
@@ -198,6 +199,22 @@ async function dbUpdateOwner(id, pin, changes) {
 
 async function dbDeleteListing(id, pin) {
   return await sbRpc("delete_listing", {p_id: Number(id), p_pin: String(pin||"")});
+}
+
+// ─── Local PIN memory ────────────────────────────────────────────────────────
+// Convenience only. Remembers the PIN on the device that created the listing so
+// an owner returning next season isn't locked out of their own house. This is
+// NOT authentication -- verify_listing_pin in Postgres is still the only thing
+// that grants edit access, and a wrong or stale value here just fails that call.
+const PIN_KEY = id => "mhd_pin_" + id;
+function rememberPin(id, pin) {
+  try { if (id && pin) localStorage.setItem(PIN_KEY(id), String(pin)); } catch(e) {}
+}
+function recallPin(id) {
+  try { return localStorage.getItem(PIN_KEY(id)) || ""; } catch(e) { return ""; }
+}
+function forgetPin(id) {
+  try { localStorage.removeItem(PIN_KEY(id)); } catch(e) {}
 }
 
 // ─── Holiday Themes ───────────────────────────────────────────────────────────
@@ -801,6 +818,7 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const [pinError,setPinError]=useState("");
   const [pinAction,setPinAction]=useState("");
   const [pinBusy,setPinBusy]=useState(false);
+  const [pinRemembered,setPinRemembered]=useState(false);
   const [verifiedPin,setVerifiedPin]=useState("");
   const [editAddress,setEditAddress]=useState(listing.address);
   // Split address into parts for editing
@@ -832,13 +850,21 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
   const tags=(listing.tags||[]).map(tid=>allTags.find(t=>t.id===tid)).filter(Boolean);
 
   function postComment(){if(!comment.trim())return;onComment(listing.id,author.trim()||"Anonymous",comment.trim());setComment("");setAuthor("");}
-  function startPinCheck(action){setPinAction(action);setPinInput("");setPinError("");setMode("pin");}
+  function startPinCheck(action){
+    const saved = recallPin(listing.id);
+    setPinAction(action);
+    setPinInput(saved);
+    setPinRemembered(saved.length===4);
+    setPinError("");
+    setMode("pin");
+  }
   async function submitPin(){
     if(pinBusy) return;
     setPinBusy(true); setPinError("");
     const ok = await dbVerifyPin(listing.id, pinInput);
     setPinBusy(false);
-    if(!ok){ setPinError("Incorrect PIN. Please try again."); return; }
+    if(!ok){ setPinError("Incorrect PIN. Please try again."); forgetPin(listing.id); setPinRemembered(false); return; }
+    rememberPin(listing.id, pinInput);
     setVerifiedPin(pinInput);
     if(pinAction==="toggle"){ onToggleActive(listing.id, pinInput); setMode("view"); return; }
     setMode(pinAction);
@@ -912,8 +938,8 @@ function Modal({listing, onClose, onRate, onComment, onEdit, onDelete, onVisit, 
           <div style={{textAlign:"center",padding:"12px 0 8px"}}>
             <div style={{fontSize:36,marginBottom:12}}>🔒</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:18,color:C.primary,marginBottom:6}}>Enter Your PIN</div>
-            <div style={{fontSize:13,color:C.textLight,marginBottom:20}}>Enter the 4-digit PIN you created when submitting this listing.</div>
-            <input value={pinInput} onChange={e=>{setPinInput(e.target.value.replace(/\D/g,"").slice(0,4));setPinError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!pinBusy)submitPin();}} type="password" maxLength={4} placeholder="••••" style={{...field,textAlign:"center",fontSize:22,letterSpacing:"10px",width:140,margin:"0 auto 10px",display:"block"}} autoFocus/>
+            <div style={{fontSize:13,color:C.textLight,marginBottom:20}}>{pinRemembered?"We filled in the PIN saved on this device — just tap Confirm.":"Enter the 4-digit PIN you created when submitting this listing."}</div>
+            <input value={pinInput} onChange={e=>{setPinInput(e.target.value.replace(/\D/g,"").slice(0,4));setPinError("");setPinRemembered(false);}} onKeyDown={e=>{if(e.key==="Enter"&&!pinBusy)submitPin();}} type="password" maxLength={4} placeholder="••••" style={{...field,textAlign:"center",fontSize:22,letterSpacing:"10px",width:140,margin:"0 auto 10px",display:"block"}} autoFocus/>
             {pinError&&<div style={{color:C.cta,fontSize:13,marginBottom:12}}>⚠️ {pinError}</div>}
             <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:16}}>
               <button onClick={()=>setMode("view")} style={{padding:"9px 20px",background:"transparent",color:C.textMid,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",fontSize:14}}>Cancel</button>
@@ -1137,6 +1163,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
   const [hours,setHours]=useState("");
   const [tags,setTags]=useState([]);
   const [pin,setPin]=useState("");
+  const [email,setEmail]=useState("");
   const [confirmPin,setConfirmPin]=useState("");
   const [photos,setPhotos]=useState([]);
   const [previews,setPreviews]=useState([]);
@@ -1205,7 +1232,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
     // Upload photos to Supabase Storage
     const uploadedPhotos = await uploadPhotosToStorage(photos);
     const mainPhoto = uploadedPhotos[0]||null;
-    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:mainPhoto,photos:uploadedPhotos,video,lat:coords.lat,lng:coords.lng,pin,active:true,visits:0,
+    onSubmit({address:fullAddress,displayName:displayName.trim(),submitter:submitter.trim()||"Anonymous",description:description.trim(),hours:hours.trim(),tags,photo:mainPhoto,photos:uploadedPhotos,video,lat:coords.lat,lng:coords.lng,pin,email:email.trim(),active:true,visits:0,
       onDuplicate:(existing)=>{setLoading(false);setDuplicateWarning(existing);setStep(1);}
     });
     setLoading(false);
@@ -1242,7 +1269,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
       photos:uploadedPhotos,
       video,
       lat:coords.lat, lng:coords.lng,
-      pin, active:true, visits:0,
+      pin, email:email.trim(), active:true, visits:0,
       onDuplicate:(existing)=>{setLoading(false);setDuplicateWarning(existing);setStep(1);}
     });
     setLoading(false);
@@ -1253,6 +1280,7 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
     ? (areaName.trim().length>0 && city.trim().length>0 && zip.trim().length===5)
     : address.trim().length > 0;
   const step2Ok = pin.length===4 && confirmPin===pin;
+  const emailLooksOff = email.trim().length>0 && !/^\S+@\S+\.\S{2,}$/.test(email.trim());
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(10,25,15,.55)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
@@ -1391,6 +1419,12 @@ function SubmitForm({onSubmit, onClose, C, holiday, listings=[]}) {
               <input value={confirmPin} onChange={e=>setConfirmPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Re-enter your PIN" maxLength={4} type="password" style={{...field,letterSpacing:confirmPin.length?"6px":"0",fontFamily:confirmPin.length?"monospace":"inherit",borderColor:confirmPin.length===4?(confirmPin===pin?C.primaryMid:C.cta):C.border}}/>
               {confirmPin.length===4&&confirmPin!==pin&&<div style={{fontSize:11,color:C.cta,marginTop:4}}>⚠️ PINs don't match — please check and try again.</div>}
               {confirmPin.length===4&&confirmPin===pin&&<div style={{fontSize:11,color:"#1a6a30",marginTop:4}}>✓ PINs match!</div>}
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Email (optional)</label>
+              <input value={email} onChange={e=>setEmail(e.target.value)} type="email" autoComplete="email" placeholder="you@example.com" style={{...field,borderColor:emailLooksOff?C.cta:C.border}}/>
+              <div style={{fontSize:11,color:C.textLight,marginTop:4}}>📧 Only used to help you recover your PIN next season. Never shown publicly, never shared, no mailing list.</div>
+              {emailLooksOff&&<div style={{fontSize:11,color:C.cta,marginTop:4}}>⚠️ That doesn't look like a complete email — double-check it, or leave it blank.</div>}
             </div>
             <div>
               <label style={{display:"block",fontSize:12,fontWeight:600,color:C.textMid,letterSpacing:".06em",textTransform:"uppercase",marginBottom:6}}>Viewing Hours (optional)</label>
@@ -1740,11 +1774,14 @@ function App() {
       const enclosing = findEnclosingNeighborhood(sameHoliday, {lat:d.lat,lng:d.lng});
       if (enclosing) parentId = enclosing.id;
     }
-    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,hasPin:!!d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday],
+    const newListing={id:"l-"+Date.now(),address:d.address,displayName:d.displayName||"",lat:d.lat,lng:d.lng,photo:d.photo,photos:d.photos||[],video:d.video||null,description:d.description||"",hours:d.hours||"",tags:d.tags||[],ratings:[],comments:[],submitter:d.submitter,pin:d.pin,email:d.email||"",hasPin:!!d.pin,createdAt:Date.now(),active:true,visits:0,holidays:[holiday],
       listingType:d.listingType||"house",areaName:d.areaName||"",radiusMeters:d.radiusMeters||null,entryNotes:d.entryNotes||"",scale:d.scale||"",parentId};
     const dbId = await dbSaveListing(newListing);
     if (dbId) newListing.id = dbId;
+    // Save the PIN on this device so the owner isn't locked out when they return.
+    rememberPin(newListing.id, d.pin);
     delete newListing.pin;
+    delete newListing.email;
     setListings(p=>[newListing,...p]);
     setShowForm(false);
   },[listings,holiday]);
@@ -1784,6 +1821,7 @@ function App() {
     }
     setListings(p=>p.filter(l=>l.id!==id));
     setSelected(null);
+    forgetPin(id);
   },[listings]);
 
   const handleVisit=useCallback(async(id)=>{
