@@ -19,6 +19,9 @@ const { useState, useEffect, useCallback, useRef } = React;
 
 
 const STORAGE_KEY = "xmas-lights-listings";
+// Change this to the address you want removal/takedown requests sent to.
+// It must match the address in terms.html and privacy.html.
+const CONTACT_EMAIL = "hello@myholidaydisplay.com";
 const GOOGLE_MAPS_API_KEY = "AIzaSyBIQl6gOZh7675WBSNtCCO4IjboEBImRC8";
 const SUPABASE_URL = "https://crovcuedrgkokabznsac.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyb3ZjdWVkcmdrb2thYnpuc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMDUyNzEsImV4cCI6MjA4ODU4MTI3MX0.q35UR5RloSNn8ix0yn8TYo-vAoysU1OwY_eX9EvGw80";
@@ -1654,6 +1657,39 @@ function RouteGenerator({listings, C, holiday}) {
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
+function SiteFooter({C}) {
+  const year = new Date().getFullYear();
+  const linkStyle = {color:C.primaryMid,textDecoration:"none",borderBottom:`1px solid ${C.border}`,paddingBottom:1,transition:"color .2s"};
+  return (
+    <footer className="site-footer" style={{position:"relative",zIndex:10,maxWidth:640,marginLeft:"auto",marginRight:"auto",paddingTop:28,paddingLeft:20,paddingRight:20,textAlign:"center"}}>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:C.primary}}>
+        My Holiday Display<span style={{fontSize:9,verticalAlign:"super",marginLeft:2,color:C.textLight}}>™</span>
+      </div>
+
+      <div style={{fontSize:12.5,color:C.textMid,marginTop:9,lineHeight:1.65}}>
+        © {year} Justin Juarez. All rights reserved.
+      </div>
+
+      <div style={{fontSize:11.5,color:C.textLight,marginTop:8,lineHeight:1.7}}>
+        The design, code, and original content of this site belong to its owner and may not be
+        copied, scraped, or republished without written permission. Listings and photos are
+        submitted by visitors, who remain responsible for what they post.
+      </div>
+
+      <div style={{display:"flex",gap:16,justifyContent:"center",flexWrap:"wrap",marginTop:14,fontSize:12.5}}>
+        <a href="/terms.html" style={linkStyle}>Terms of Use</a>
+        <a href="/privacy.html" style={linkStyle}>Privacy Policy</a>
+        <a href={`mailto:${CONTACT_EMAIL}?subject=Listing%20removal%20request`} style={linkStyle}>Remove a listing</a>
+      </div>
+
+      <div style={{fontSize:11,color:C.textLight,marginTop:14,lineHeight:1.6,opacity:.85}}>
+        Displays are on private property. Be respectful, stay in your vehicle unless invited,
+        and don't block driveways.
+      </div>
+    </footer>
+  );
+}
+
 function App() {
   const [holiday,setHoliday]=useState(()=>seasonalHoliday());
   const H = HOLIDAYS[holiday];
@@ -1836,6 +1872,10 @@ function App() {
         @keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.06)}100%{transform:scale(1)}}
         .tag-btn{transition:all .18s cubic-bezier(.25,.46,.45,.94)!important}
         .tag-btn:active{transform:scale(.93)!important}
+        .site-footer{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+        @media(min-width:640px){.site-footer{padding-bottom:36px}}
+        .site-footer a:hover{color:${C.cta}}
+        .site-footer a:focus-visible{outline:2px solid ${C.primaryMid};outline-offset:3px;border-radius:2px}
       `}</style>
       <Snow holiday={holiday}/>
 
@@ -2019,6 +2059,8 @@ function App() {
       </main>
 
       <div style={{height:4,background:`repeating-linear-gradient(90deg, ${H.stripeColors[0]} 0px, ${H.stripeColors[0]} 20px, ${H.stripeColors[2]} 20px, ${H.stripeColors[2]} 40px, ${H.stripeColors[1]} 40px, ${H.stripeColors[1]} 60px, ${H.stripeColors[2]} 60px, ${H.stripeColors[2]} 80px)`,marginTop:40}}/>
+
+      <SiteFooter C={C}/>
 
       {/* Mobile bottom nav */}
       <nav className="bottom-nav">
